@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react"; // Added React import
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {

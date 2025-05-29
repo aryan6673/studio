@@ -4,15 +4,8 @@ import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import { AppLayout } from '@/components/layout/AppLayout';
 
-const geistSans = GeistSans({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = GeistMono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
+// The imported GeistSans and GeistMono are objects, not functions to be called.
+// Their .variable property provides the necessary class name.
 
 export const metadata: Metadata = {
   title: 'CycleBloom - Your Wellness Companion',
@@ -25,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body className="antialiased">
         <AppLayout>
           {children}
