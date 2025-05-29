@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { PeriodLog } from "@/lib/types";
 import { db } from "@/lib/firebase";
 import { collection, query, orderBy, limit, getDocs, doc, getDoc } from "firebase/firestore";
-import { parseISO, isValid } from 'date-fns';
+import { parseISO, isValid, format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface UserProfileData {
@@ -39,20 +39,47 @@ export default function DashboardPage() {
     try {
       // Fetch period logs
       const logsCollectionRef = collection(db, "users", currentUser.uid, "periodLogs");
-      const q = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24));
+      const q = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24)); // Fetch more for AI
       const logsSnapshot = await getDocs(q);
       const fetchedLogs = logsSnapshot.docs.map(doc => {
         const data = doc.data();
-        const startDate = data.startDate && typeof data.startDate === 'string' ? parseISO(data.startDate) : null;
-        const endDate = data.endDate && typeof data.endDate === 'string' ? parseISO(data.endDate) : undefined;
-        
-        if (!startDate || !isValid(startDate)) {
-            console.warn("Invalid startDate found in Firestore log:", doc.id, data.startDate);
-            return null; // Skip this log or handle as error
+        // Ensure dates are parsed correctly from "YYYY-MM-DD" strings
+        const startDateString = data.startDate;
+        const endDateString = data.endDate;
+
+        let startDate: Date | null = null;
+        if (startDateString && typeof startDateString === 'string') {
+            startDate = parseISO(startDateString);
+            if (!isValid(startDate)) {
+                 console.warn("Invalid startDate found in Firestore log:", doc.id, data.startDate);
+                 startDate = null; // or handle as error
+            }
+        } else if (data.startDate?.toDate && typeof data.startDate.toDate === 'function') { // Handle Firebase Timestamp
+            startDate = data.startDate.toDate();
+             if (!isValid(startDate)) {
+                 console.warn("Invalid Firebase Timestamp for startDate:", doc.id, data.startDate);
+                 startDate = null;
+            }
         }
-        if (data.endDate && (!endDate || !isValid(endDate))) {
-            console.warn("Invalid endDate found in Firestore log:", doc.id, data.endDate);
-             //Potentially set endDate to undefined or skip
+
+
+        let endDate: Date | undefined = undefined;
+        if (endDateString && typeof endDateString === 'string') {
+            endDate = parseISO(endDateString);
+            if (!isValid(endDate)) {
+                console.warn("Invalid endDate found in Firestore log:", doc.id, data.endDate);
+                endDate = undefined; 
+            }
+        } else if (data.endDate?.toDate && typeof data.endDate.toDate === 'function') { // Handle Firebase Timestamp
+             endDate = data.endDate.toDate();
+             if (!isValid(endDate)) {
+                 console.warn("Invalid Firebase Timestamp for endDate:", doc.id, data.endDate);
+                 endDate = undefined;
+            }
+        }
+        
+        if (!startDate) { // If startDate is still null after checks
+            return null; 
         }
 
         return {
@@ -61,7 +88,8 @@ export default function DashboardPage() {
           endDate: endDate,
           symptoms: data.symptoms || [],
         } as PeriodLog;
-      }).filter(log => log !== null) as PeriodLog[];
+      }).filter(log => log !== null && log.startDate !== null) as PeriodLog[]; // Ensure startDate is not null
+      
       setPeriodLogs(fetchedLogs);
 
       // Fetch user profile for cycle settings
@@ -81,8 +109,10 @@ export default function DashboardPage() {
       console.error("Error fetching dashboard data:", err);
       if (err.code === 'unavailable' || (err.message && typeof err.message === 'string' && err.message.toLowerCase().includes('offline'))) {
         setError("You appear to be offline. Please check your internet connection to load dashboard data.");
+      } else if (err.code === 'permission-denied') {
+        setError("You do not have permission to access this data. Please ensure you are logged in with the correct account or contact support if this persists.");
       } else {
-        setError("Could not load dashboard data. Please try refreshing.");
+        setError(`Could not load dashboard data. Error: ${err.message || 'Unknown error'}`);
       }
       setPeriodLogs([]);
       setUserProfile(null);
@@ -97,7 +127,7 @@ export default function DashboardPage() {
     }
   }, [currentUser, authLoading, fetchDashboardData]);
 
-  if (authLoading || (dataLoading && currentUser)) {
+  if (authLoading || (dataLoading && currentUser && !error)) {
     return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -148,17 +178,20 @@ export default function DashboardPage() {
   
   if (error) {
     return (
-        <Card className="max-w-md mx-auto mt-10 text-center">
+        <Card className="max-w-lg mx-auto mt-10 text-center">
             <CardHeader>
-                <CardTitle className="text-destructive">Error</CardTitle>
+                <CardTitle className="text-destructive">Error Loading Dashboard</CardTitle>
             </CardHeader>
             <CardContent>
-                <p>{error}</p>
+                <p className="text-destructive-foreground bg-destructive/10 p-3 rounded-md">{error}</p>
                 <Button onClick={fetchDashboardData} className="mt-4">Try Again</Button>
             </CardContent>
         </Card>
     );
   }
+  
+  // Ensure periodLogs are valid before passing to CycleCalendar
+  const validPeriodLogs = periodLogs.filter(log => log && log.startDate && isValid(log.startDate));
 
   return (
     <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
@@ -169,7 +202,7 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           <CycleCalendar 
-            logs={periodLogs} 
+            logs={validPeriodLogs} 
             cycleLength={userProfile?.averageCycleLength ?? undefined} 
             averagePeriodDuration={userProfile?.averagePeriodDuration ?? undefined}
           />
@@ -191,7 +224,7 @@ export default function DashboardPage() {
             <Button asChild variant="outline" className="w-full justify-start">
               <Link href="/recommendations">
                 <Gift className="mr-2 h-5 w-5" />
-                Get Gift Recommendations
+                Get Gift Suggestions
               </Link>
             </Button>
             <Button asChild variant="outline" className="w-full justify-start">
