@@ -23,37 +23,33 @@ export default function DashboardPage() {
   const { currentUser, loading: authLoading } = useAuth();
   const [periodLogs, setPeriodLogs] = useState<PeriodLog[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true); // True initially if authLoading is true or currentUser exists
   const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
-    if (!currentUser) {
+    if (!currentUser?.uid) {
+      console.log("DashboardPage: fetchDashboardData called without currentUser.uid, bailing.");
       setDataLoading(false);
       setPeriodLogs([]);
       setUserProfile(null);
-      setError(null); // Clear previous errors if user logs out
+      setError(null);
       return;
     }
 
     console.log("DashboardPage: Starting fetchDashboardData for user:", currentUser.uid);
     setDataLoading(true);
-    setError(null); // Clear previous errors before new fetch
+    setError(null); 
 
     try {
-      // Fetch period logs
       const logsCollectionRef = collection(db, "users", currentUser.uid, "periodLogs");
       const q = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24));
       const logsSnapshot = await getDocs(q);
       const fetchedLogs = logsSnapshot.docs.map(docSnap => {
         const data = docSnap.data();
         let startDate: Date | null = null;
-
         if (data.startDate) {
-          if (data.startDate instanceof Timestamp) {
-            startDate = data.startDate.toDate();
-          } else if (typeof data.startDate === 'string') {
-            startDate = parseISO(data.startDate);
-          }
+          if (data.startDate instanceof Timestamp) startDate = data.startDate.toDate();
+          else if (typeof data.startDate === 'string') startDate = parseISO(data.startDate);
         }
         if (startDate && !isValid(startDate)) {
           console.warn("Invalid startDate from Firestore:", docSnap.id, data.startDate);
@@ -62,11 +58,8 @@ export default function DashboardPage() {
 
         let endDate: Date | undefined = undefined;
         if (data.endDate) {
-          if (data.endDate instanceof Timestamp) {
-            endDate = data.endDate.toDate();
-          } else if (typeof data.endDate === 'string') {
-            endDate = parseISO(data.endDate);
-          }
+          if (data.endDate instanceof Timestamp) endDate = data.endDate.toDate();
+          else if (typeof data.endDate === 'string') endDate = parseISO(data.endDate);
         }
         if (endDate && !isValid(endDate)) {
           console.warn("Invalid endDate from Firestore:", docSnap.id, data.endDate);
@@ -74,7 +67,6 @@ export default function DashboardPage() {
         }
         
         if (!startDate) return null;
-
         return {
           id: docSnap.id,
           startDate: startDate,
@@ -85,7 +77,6 @@ export default function DashboardPage() {
       setPeriodLogs(fetchedLogs);
       console.log("DashboardPage: Fetched period logs:", fetchedLogs.length);
 
-      // Fetch user profile for cycle settings
       const profileDocRef = doc(db, "users", currentUser.uid);
       const profileSnap = await getDoc(profileDocRef);
       if (profileSnap.exists()) {
@@ -129,84 +120,73 @@ export default function DashboardPage() {
       setPeriodLogs([]);
       setUserProfile(null);
     } finally {
-      console.log("DashboardPage: Setting dataLoading to false.");
+      console.log("DashboardPage: Setting dataLoading to false in finally block.");
       setDataLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser?.uid]); // Depend only on currentUser.uid for stability
 
   useEffect(() => {
-    console.log("DashboardPage: Auth state changed. AuthLoading:", authLoading, "CurrentUser:", !!currentUser);
-    if (!authLoading) {
-      fetchDashboardData();
+    console.log("DashboardPage: Auth or loading state changed. AuthLoading:", authLoading, "CurrentUser:", !!currentUser);
+    if (!authLoading && currentUser) {
+      console.log("DashboardPage: Auth loaded and user exists, calling fetchDashboardData.");
+      fetchDashboardData().catch(e => {
+        // This is an extra safeguard. Errors should ideally be caught within fetchDashboardData.
+        console.error("DashboardPage: fetchDashboardData promise rejected in useEffect:", e);
+        setError("An unexpected error occurred while trying to load dashboard data. Please try refreshing.");
+        setDataLoading(false);
+      });
+    } else if (!authLoading && !currentUser) {
+      console.log("DashboardPage: Auth loaded and no user, clearing data and error states.");
+      setPeriodLogs([]);
+      setUserProfile(null);
+      setError(null);
+      setDataLoading(false); // No data to load if not logged in
+    } else if (authLoading) {
+      console.log("DashboardPage: Auth is loading, setting dataLoading to true.");
+      setDataLoading(true); // Ensure dataLoading is true while auth is loading
+      setError(null); // Clear previous errors while auth is loading
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, authLoading]); // fetchDashboardData is memoized via useCallback
+  }, [currentUser, authLoading, fetchDashboardData]);
 
-  // Debug: Log when error state changes
   useEffect(() => {
     console.log("DashboardPage: Error state is now:", error);
   }, [error]);
   
-  // Debug: Log when dataLoading state changes
   useEffect(() => {
     console.log("DashboardPage: dataLoading state is now:", dataLoading);
   }, [dataLoading]);
 
-
   if (authLoading) {
     console.log("DashboardPage: Rendering Auth Loading Skeleton.");
+    // Keep dataLoading true while auth is happening.
+    // setError should be null here due to useEffect logic.
     return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <Skeleton className="h-7 w-3/5" />
-            <Skeleton className="h-4 w-4/5 mt-1" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-[400px] w-full" />
-          </CardContent>
+          <CardHeader><Skeleton className="h-7 w-3/5" /><Skeleton className="h-4 w-4/5 mt-1" /></CardHeader>
+          <CardContent><Skeleton className="h-[400px] w-full" /></CardContent>
         </Card>
         <div className="space-y-6">
-          <Card>
-            <CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader>
-            <CardContent className="grid gap-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader>
-            <CardContent><Skeleton className="h-10 w-full" /></CardContent>
-          </Card>
+          <Card><CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader><CardContent className="grid gap-4"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></CardContent></Card>
+          <Card><CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card>
         </div>
       </div>
     );
   }
 
-  if (!currentUser && !authLoading) {
+  if (!currentUser) { // authLoading is false here
     console.log("DashboardPage: Rendering Not Logged In State.");
     return (
       <Card className="max-w-md mx-auto mt-10 text-center">
-        <CardHeader>
-          <CardTitle>Welcome to CycleBloom!</CardTitle>
-          <CardDescription>Please log in to view your dashboard and track your cycle.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild>
-            <Link href="/login">
-              <LogIn className="mr-2 h-5 w-5" />
-              Log In
-            </Link>
-          </Button>
-        </CardContent>
+        <CardHeader><CardTitle>Welcome to CycleBloom!</CardTitle><CardDescription>Please log in to view your dashboard and track your cycle.</CardDescription></CardHeader>
+        <CardContent><Button asChild><Link href="/login"><LogIn className="mr-2 h-5 w-5" />Log In</Link></Button></CardContent>
       </Card>
     );
   }
   
-  // This is the crucial part for displaying the error
+  // currentUser exists, authLoading is false. Now check for errors from data fetching.
   if (error) {
-    console.log("DashboardPage: Rendering Error State with message:", error);
+    console.log("DashboardPage: Rendering Error State Card. CurrentUser:", !!currentUser, "Error Message:", error);
     return (
         <Card className="max-w-lg mx-auto mt-10 text-center">
             <CardHeader>
@@ -217,7 +197,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
                 <p className="text-muted-foreground mb-6">{error}</p>
-                <Button onClick={fetchDashboardData} disabled={dataLoading}>
+                <Button onClick={() => fetchDashboardData().catch(e => { /* Already handled in useEffect */ })} disabled={dataLoading}>
                   {dataLoading ? "Retrying..." : "Try Again"}
                 </Button>
             </CardContent>
@@ -225,41 +205,27 @@ export default function DashboardPage() {
     );
   }
 
-  // Data loading for an already authenticated user
-  if (currentUser && dataLoading) {
+  // currentUser exists, authLoading is false, no error. Check dataLoading.
+  if (dataLoading) { // This means fetchDashboardData is in progress
     console.log("DashboardPage: Rendering Data Loading Skeleton for authenticated user.");
      return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <Skeleton className="h-7 w-3/5" />
-            <Skeleton className="h-4 w-4/5 mt-1" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-[400px] w-full" />
-          </CardContent>
+          <CardHeader><Skeleton className="h-7 w-3/5" /><Skeleton className="h-4 w-4/5 mt-1" /></CardHeader>
+          <CardContent><Skeleton className="h-[400px] w-full" /></CardContent>
         </Card>
         <div className="space-y-6">
-          <Card>
-            <CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader>
-            <CardContent className="grid gap-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader>
-            <CardContent><Skeleton className="h-10 w-full" /></CardContent>
-          </Card>
+          <Card><CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader><CardContent className="grid gap-4"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></CardContent></Card>
+          <Card><CardHeader><Skeleton className="h-6 w-1/2" /></CardHeader><CardContent><Skeleton className="h-10 w-full" /></CardContent></Card>
         </div>
       </div>
     );
   }
   
-  // Data Loaded State (currentUser must exist here, and dataLoading is false, and no error)
-  if (currentUser && !dataLoading && !error) {
-    console.log("DashboardPage: Rendering Data Loaded State.");
+  // currentUser exists, authLoading is false, no error, dataLoading is false. Data should be loaded.
+  // (Added null check for userProfile just in case, though fetchDashboardData sets a default)
+  if (userProfile) {
+    console.log("DashboardPage: Rendering Data Loaded State. Logs:", periodLogs.length, "Profile:", userProfile);
     const validPeriodLogs = periodLogs.filter(log => log && log.startDate && isValid(log.startDate));
 
     return (
@@ -280,52 +246,29 @@ export default function DashboardPage() {
 
         <div className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Quick Actions</CardTitle></CardHeader>
             <CardContent className="grid gap-4">
-              <Button asChild variant="outline" className="w-full justify-start">
-                <Link href="/log-period">
-                  <PenSquare className="mr-2 h-5 w-5" />
-                  Log Period / Symptoms
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="w-full justify-start">
-                <Link href="/recommendations">
-                  <Gift className="mr-2 h-5 w-5" />
-                  Get Gift Suggestions
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="w-full justify-start">
-                <Link href="/wellness">
-                  <Sparkles className="mr-2 h-5 w-5" />
-                  View Wellness Tips
-                </Link>
-              </Button>
+              <Button asChild variant="outline" className="w-full justify-start"><Link href="/log-period"><PenSquare className="mr-2 h-5 w-5" />Log Period / Symptoms</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start"><Link href="/recommendations"><Gift className="mr-2 h-5 w-5" />Get Gift Suggestions</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start"><Link href="/wellness"><Sparkles className="mr-2 h-5 w-5" />View Wellness Tips</Link></Button>
             </CardContent>
           </Card>
           
           <Card>
-            <CardHeader>
-              <CardTitle>Today's Tip</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Stay hydrated! Drinking enough water can help reduce bloating and fatigue during your cycle.</p>
-            </CardContent>
+            <CardHeader><CardTitle>Today's Tip</CardTitle></CardHeader>
+            <CardContent><p className="text-sm text-muted-foreground">Stay hydrated! Drinking enough water can help reduce bloating and fatigue during your cycle.</p></CardContent>
           </Card>
         </div>
       </div>
     );
   }
 
-  // Fallback for any unexpected state
-  console.warn("DashboardPage: Reached fallback rendering state. This should not happen.");
+  console.warn("DashboardPage: Reached fallback rendering state. This should ideally not happen. Current state:", { authLoading, currentUser: !!currentUser, error, dataLoading, userProfile: !!userProfile });
   return (
     <div className="text-center py-10">
-        <p>Something went wrong or the dashboard is in an unexpected state. Please try refreshing.</p>
+        <p>Loading dashboard or an unexpected state occurred. Please try refreshing.</p>
+        {error && <p className="text-destructive mt-2">{error}</p>}
     </div>
   );
 }
-    
-
     
