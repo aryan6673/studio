@@ -69,6 +69,30 @@ Guidelines:
 - Ensure all predicted start dates are after or on the 'currentDate'. If a predicted event would have started in the past based on calculations, adjust it to the next cycle or clearly state why a prediction cannot be made for the immediate future.
 `;
 
+const predictCyclePrompt = ai.definePrompt({
+    name: 'predictCyclePrompt',
+    input: { schema: PredictCycleInputSchema },
+    output: { schema: PredictCycleOutputSchema },
+    system: systemPrompt,
+    prompt: `
+    Current Date: {{currentDate}}
+
+    User's Average Cycle Length: {{#if averageCycleLength}}{{averageCycleLength}} days{{else}}Not provided{{/if}}
+    User's Average Period Duration: {{#if averagePeriodDuration}}{{averagePeriodDuration}} days{{else}}Not provided{{/if}}
+
+    Period Logs (up to 12 most recent, sorted chronologically):
+    {{#if periodLogs.length}}
+      {{#each periodLogs}}
+      - Log: Start Date: {{startDate}}{{#if endDate}}, End Date: {{endDate}}{{else}}, End Date: Not specified{{/if}}
+      {{/each}}
+    {{else}}
+      No period logs provided.
+    {{/if}}
+
+    Based on this information, provide the predictions.
+    `,
+});
+
 const predictCycleFlow = ai.defineFlow(
   {
     name: 'predictCycleFlow',
@@ -76,39 +100,19 @@ const predictCycleFlow = ai.defineFlow(
     outputSchema: PredictCycleOutputSchema,
   },
   async (input) => {
-    const prompt = ai.definePrompt({
-        name: 'predictCyclePrompt',
-        input: { schema: PredictCycleInputSchema },
-        output: { schema: PredictCycleOutputSchema },
-        system: systemPrompt,
-        prompt: `
-        Current Date: {{currentDate}}
-
-        User's Average Cycle Length: {{#if averageCycleLength}}{{averageCycleLength}} days{{else}}Not provided{{/if}}
-        User's Average Period Duration: {{#if averagePeriodDuration}}{{averagePeriodDuration}} days{{else}}Not provided{{/if}}
-
-        Period Logs (up to 12 most recent, sorted chronologically):
-        {{#if periodLogs.length}}
-          {{#each periodLogs}}
-          - Log: Start Date: {{startDate}}{{#if endDate}}, End Date: {{endDate}}{{else}}, End Date: Not specified{{/if}}
-          {{/each}}
-        {{else}}
-          No period logs provided.
-        {{/if}}
-
-        Based on this information, provide the predictions.
-        `,
-    });
-
     try {
-        const { output } = await prompt(input);
+        const { output } = await predictCyclePrompt(input);
         if (!output) {
             return { error: "AI model did not return a valid prediction structure." };
         }
         // Validate output dates are actually in the future or today if possible
         // This basic validation can be enhanced
         if (output.nextPeriod && new Date(output.nextPeriod.startDate) < new Date(input.currentDate)) {
-            return { error: "AI predicted a past date for the next period. Please review logs.", reasoning: output.reasoning };
+             // Check if the end date is also in the past, if so, it's an old prediction.
+            if (output.nextPeriod.endDate && new Date(output.nextPeriod.endDate) < new Date(input.currentDate)) {
+                 return { error: "AI predicted a past period. Consider logging more recent data or adjusting settings.", reasoning: output.reasoning };
+            }
+            // If start date is past but end date is future, it's an ongoing predicted period, which is fine.
         }
         return output;
     } catch (e) {
