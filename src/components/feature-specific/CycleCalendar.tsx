@@ -1,16 +1,20 @@
+
 // @ts-nocheck
 "use client";
 
 import * as React from "react";
-import { addDays, format, startOfDay } from "date-fns";
+import { addDays, format, startOfDay, parseISO } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import type { PeriodLog } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { predictCycle, type PredictCycleInput, type PredictCycleOutput, type PeriodLogInput } from "@/ai/flows/predict-cycle-flow";
+import { AlertTriangle } from "lucide-react";
 
 interface CycleCalendarProps {
   logs: PeriodLog[];
-  cycleLength?: number; // Average cycle length in days
+  cycleLength?: number; // Average cycle length in days, from user profile or settings
+  averagePeriodDuration?: number; // Average period duration, from user profile or settings
 }
 
 interface DayInfo {
@@ -22,90 +26,156 @@ interface DayInfo {
   symptoms?: string[];
 }
 
-export function CycleCalendar({ logs, cycleLength = 28 }: CycleCalendarProps) {
+export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: CycleCalendarProps) {
   const [currentMonth, setCurrentMonth] = React.useState<Date>(new Date());
   const [dayInfoMap, setDayInfoMap] = React.useState<Map<string, DayInfo>>(new Map());
+  const [aiPrediction, setAiPrediction] = React.useState<PredictCycleOutput | null>(null);
+  const [isFetchingPrediction, setIsFetchingPrediction] = React.useState(false);
+  const [predictionError, setPredictionError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const fetchAiPredictions = async () => {
+      if (logs && logs.length === 0 && !cycleLength) {
+        // Not enough info for a meaningful prediction without any logs or average cycle length
+        setAiPrediction({ error: "Not enough data to make predictions. Please log a period or set your average cycle length." });
+        setDayInfoMap(new Map()); // Clear previous predictions
+        return;
+      }
+
+      setIsFetchingPrediction(true);
+      setPredictionError(null);
+      setAiPrediction(null); // Clear previous AI prediction
+
+      const formattedLogs: PeriodLogInput[] = logs.map(log => ({
+        startDate: format(log.startDate, "yyyy-MM-dd"),
+        endDate: log.endDate ? format(log.endDate, "yyyy-MM-dd") : undefined,
+      }));
+
+      const input: PredictCycleInput = {
+        periodLogs: formattedLogs,
+        averageCycleLength: cycleLength,
+        averagePeriodDuration: averagePeriodDuration,
+        currentDate: format(new Date(), "yyyy-MM-dd"),
+      };
+
+      try {
+        const result = await predictCycle(input);
+        setAiPrediction(result);
+        if (result.error) {
+            setPredictionError(result.error);
+        }
+      } catch (error) {
+        console.error("Failed to fetch AI cycle predictions:", error);
+        setPredictionError("Could not fetch AI predictions. Please try again later.");
+        setAiPrediction(null);
+      } finally {
+        setIsFetchingPrediction(false);
+      }
+    };
+
+    fetchAiPredictions();
+  }, [logs, cycleLength, averagePeriodDuration]);
 
   React.useEffect(() => {
     const newDayInfoMap = new Map<string, DayInfo>();
 
+    // 1. Mark logged past periods
     logs.forEach(log => {
       const start = startOfDay(log.startDate);
-      const end = log.endDate ? startOfDay(log.endDate) : addDays(start, 4); // Assume 5 day period if end date not set
+      // Use provided end date or default to 4 days after start if ongoing/not specified for display
+      const end = log.endDate ? startOfDay(log.endDate) : addDays(start, (averagePeriodDuration || 5) - 1);
 
-      // Mark logged period days
       for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
         const dateStr = format(d, "yyyy-MM-dd");
-        const existingInfo = newDayInfoMap.get(dateStr) || {};
         newDayInfoMap.set(dateStr, {
-          ...existingInfo,
           date: d,
           isLoggedPeriod: true,
           symptoms: log.symptoms,
         });
       }
-
-      // Predict next period, fertile window, and ovulation
-      if (cycleLength > 0) {
-        const lastLoggedCycleStart = start; // Use the start of the current log iteration for prediction base
-        
-        const nextPeriodStartDate = addDays(lastLoggedCycleStart, cycleLength);
-        
-        const ovulationDate = addDays(nextPeriodStartDate, -14);
-        const fertileWindowStart = addDays(ovulationDate, -5);
-        const fertileWindowEnd = addDays(ovulationDate, 1);
-
-        for (let d = new Date(fertileWindowStart); d <= fertileWindowEnd; d = addDays(d, 1)) {
-          const dateStr = format(d, "yyyy-MM-dd");
-          const existingInfo = newDayInfoMap.get(dateStr) || { date: d };
-          if (!existingInfo.isLoggedPeriod) { // Don't mark fertile/ovulation if it's a logged period day
-            newDayInfoMap.set(dateStr, {
-              ...existingInfo,
-              isFertile: true,
-            });
-          }
-        }
-        
-        const ovulationDateStr = format(ovulationDate, "yyyy-MM-dd");
-        const existingOvulationInfo = newDayInfoMap.get(ovulationDateStr) || { date: ovulationDate };
-        if (!existingOvulationInfo.isLoggedPeriod) {
-            newDayInfoMap.set(ovulationDateStr, {
-            ...existingOvulationInfo,
-            isOvulation: true,
-            isFertile: true, 
-          });
-        }
-
-        // Mark predicted next period (e.g., 5 days)
-        for (let i = 0; i < 5; i++) {
-          const d = addDays(nextPeriodStartDate, i);
-          const dateStr = format(d, "yyyy-MM-dd");
-          const existingInfo = newDayInfoMap.get(dateStr) || { date: d };
-          if (!existingInfo.isLoggedPeriod) { // Only mark as predicted if not already a logged period
-            newDayInfoMap.set(dateStr, {
-              ...existingInfo,
-              isPredictedPeriod: true,
-            });
-          }
-        }
-      }
     });
+
+    // 2. Mark AI-predicted future events
+    if (aiPrediction && !aiPrediction.error) {
+      const todayFormatted = format(startOfDay(new Date()), "yyyy-MM-dd");
+
+      // Predicted Period
+      if (aiPrediction.nextPeriod) {
+        try {
+          const periodStart = startOfDay(parseISO(aiPrediction.nextPeriod.startDate));
+          const periodEnd = startOfDay(parseISO(aiPrediction.nextPeriod.endDate));
+          if (format(periodStart, "yyyy-MM-dd") >= todayFormatted) {
+            for (let d = new Date(periodStart); d <= periodEnd; d = addDays(d, 1)) {
+              const dateStr = format(d, "yyyy-MM-dd");
+              if (!newDayInfoMap.has(dateStr)) { // Only mark if not a logged period
+                newDayInfoMap.set(dateStr, { date: d, isPredictedPeriod: true });
+              }
+            }
+          }
+        } catch (e) { console.error("Error parsing predicted period dates:", e); }
+      }
+
+      // Predicted Fertile Window
+      if (aiPrediction.nextFertileWindow) {
+         try {
+          const fertileStart = startOfDay(parseISO(aiPrediction.nextFertileWindow.startDate));
+          const fertileEnd = startOfDay(parseISO(aiPrediction.nextFertileWindow.endDate));
+           if (format(fertileStart, "yyyy-MM-dd") >= todayFormatted || format(fertileEnd, "yyyy-MM-dd") >= todayFormatted) {
+            for (let d = new Date(fertileStart); d <= fertileEnd; d = addDays(d, 1)) {
+              const dateStr = format(d, "yyyy-MM-dd");
+              const existingInfo = newDayInfoMap.get(dateStr) || { date: d };
+              if (!existingInfo.isLoggedPeriod && !existingInfo.isPredictedPeriod) { // Avoid overwriting period markings
+                newDayInfoMap.set(dateStr, { ...existingInfo, isFertile: true });
+              }
+            }
+          }
+        } catch (e) { console.error("Error parsing predicted fertile window dates:", e); }
+      }
+      
+      // Predicted Ovulation
+      if (aiPrediction.nextOvulationDate) {
+        try {
+          const ovulationDate = startOfDay(parseISO(aiPrediction.nextOvulationDate));
+          if (format(ovulationDate, "yyyy-MM-dd") >= todayFormatted) {
+            const dateStr = format(ovulationDate, "yyyy-MM-dd");
+            const existingInfo = newDayInfoMap.get(dateStr) || { date: ovulationDate };
+             if (!existingInfo.isLoggedPeriod && !existingInfo.isPredictedPeriod) { // Avoid overwriting period markings
+              newDayInfoMap.set(dateStr, { ...existingInfo, isOvulation: true, isFertile: true }); // Ovulation is part of fertile window
+            }
+          }
+        } catch (e) { console.error("Error parsing predicted ovulation date:", e); }
+      }
+    }
     setDayInfoMap(newDayInfoMap);
-  }, [logs, cycleLength]); // currentMonth removed from deps as it caused re-calc & potential overrides
+  }, [logs, aiPrediction, averagePeriodDuration]);
   
   const today = startOfDay(new Date());
 
   return (
     <div className="rounded-md border shadow-sm bg-card">
+       {isFetchingPrediction && (
+        <div className="p-4 text-center text-sm text-muted-foreground">Fetching AI predictions...</div>
+      )}
+      {predictionError && (
+        <div className="p-4 text-sm text-destructive-foreground bg-destructive/80 rounded-t-md flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5" />
+          <span>{predictionError}</span>
+        </div>
+      )}
+      {aiPrediction?.reasoning && !predictionError && (
+         <div className="p-3 text-xs text-muted-foreground border-b bg-accent/20">
+            <strong>AI Note:</strong> {aiPrediction.reasoning}
+        </div>
+      )}
       <Calendar
         mode="single"
-        selected={today}
+        selected={today} // Keep today selected by default for user orientation
         month={currentMonth}
         onMonthChange={setCurrentMonth}
         className="p-0"
         classNames={{
-          day_selected: "bg-primary/30 text-primary-foreground rounded-md", // Default selected style
-          day_today: "text-accent-foreground rounded-md border border-primary", // Default today style
+          day_selected: "bg-primary/30 text-primary-foreground rounded-md",
+          day_today: "text-accent-foreground rounded-md border border-primary",
         }}
         modifiers={{
           loggedPeriod: Array.from(dayInfoMap.values()).filter(d => d.isLoggedPeriod).map(d => d.date),
@@ -131,13 +201,13 @@ export function CycleCalendar({ logs, cycleLength = 28 }: CycleCalendarProps) {
               ariaLabel = "Logged Period";
             } else if (info?.isPredictedPeriod) {
               badgeLabel = "P";
-              ariaLabel = "Predicted Period";
+              ariaLabel = "AI Predicted Period";
             } else if (info?.isOvulation) {
               badgeLabel = "O";
-              ariaLabel = "Predicted Ovulation";
+              ariaLabel = "AI Predicted Ovulation";
             } else if (info?.isFertile) {
               badgeLabel = "F";
-              ariaLabel = "Fertile Window";
+              ariaLabel = "AI Predicted Fertile Window";
             }
             
             return (
@@ -148,9 +218,7 @@ export function CycleCalendar({ logs, cycleLength = 28 }: CycleCalendarProps) {
                     variant="outline"
                     className={cn(
                       "absolute bottom-0.5 text-[9px] px-1 py-0 h-auto leading-tight font-semibold",
-                      // Text color of badge can be foreground or a specific color if needed for contrast
-                      // e.g., info?.isLoggedPeriod ? "text-destructive-foreground" : "text-foreground"
-                      // For simplicity, using default badge "outline" which is text-foreground
+                       "bg-background/70 backdrop-blur-sm" // Make badge slightly opaque for better visibility
                     )}
                     aria-label={ariaLabel}
                   >
@@ -169,17 +237,17 @@ export function CycleCalendar({ logs, cycleLength = 28 }: CycleCalendarProps) {
         </div>
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full relative overflow-hidden" style={{ backgroundColor: 'var(--cal-predicted-period-bg)' }}>
-             <span style={{ position: 'absolute', inset: '0px', border: '1px dashed var(--cal-predicted-period-fg-indicator)', borderRadius: 'inherit', Ttransform: 'scale(1.2)' /* Make dash visible */}}></span>
+             <span style={{ position: 'absolute', inset: '0px', border: '1px dashed var(--cal-predicted-period-fg-indicator)', borderRadius: 'inherit'}}></span>
           </span>
-          <span>Predicted Period</span>
+          <span>AI Predicted Period</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full" style={{ backgroundColor: 'var(--cal-fertile-bg)', border: '1px solid var(--cal-fertile-fg-indicator)' }}></span>
-          <span>Fertile Window</span>
+          <span>AI Predicted Fertile</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full" style={{ backgroundColor: 'var(--cal-ovulation-bg)', border: '1px solid var(--cal-ovulation-border-indicator)' }}></span>
-          <span>Ovulation (Est.)</span>
+          <span>AI Predicted Ovulation</span>
         </div>
       </div>
     </div>
