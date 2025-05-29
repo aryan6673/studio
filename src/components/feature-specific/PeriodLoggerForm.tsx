@@ -14,6 +14,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,7 @@ export function PeriodLoggerForm() {
     setIsSaving(true);
     try {
       const logDataToSave = {
-        userId: currentUser.uid, // Store userId for potential broader queries if needed, though subcollection already scopes it
+        userId: currentUser.uid, 
         startDate: format(data.startDate, "yyyy-MM-dd"),
         endDate: data.endDate ? format(data.endDate, "yyyy-MM-dd") : null,
         symptoms: data.symptoms || [],
@@ -72,13 +73,17 @@ export function PeriodLoggerForm() {
         title: "Period Logged",
         description: "Your period data has been saved successfully.",
       });
-      form.reset({ startDate: undefined, endDate: undefined, symptoms: [] }); // Explicitly reset dates
+      form.reset({ startDate: undefined, endDate: undefined, symptoms: [] }); 
       setSelectedSymptoms([]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving period log:", error);
+      let description = "Could not save your period log. Please try again.";
+      if (error.code === 'unavailable' || (error.message && typeof error.message === 'string' && error.message.toLowerCase().includes('offline'))) {
+        description = "You appear to be offline. Please check your connection and try again.";
+      }
       toast({
         title: "Save Failed",
-        description: "Could not save your period log. Please try again.",
+        description: description,
         variant: "destructive",
       });
     } finally {
@@ -86,12 +91,12 @@ export function PeriodLoggerForm() {
     }
   }
 
-  if (!currentUser && !isSaving) { // Also check !isSaving to avoid flicker during submission if user logs out mid-process
+  if (!currentUser && !isSaving) { 
     return (
       <div className="text-center p-4 border rounded-md bg-muted">
         <p className="text-muted-foreground">Please log in to record your period data.</p>
         <Button variant="link" asChild className="mt-2">
-          <a href="/login">Go to Login</a>
+          <a href="/login?redirect=/log-period">Go to Login</a>
         </Button>
       </div>
     );

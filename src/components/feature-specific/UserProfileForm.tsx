@@ -103,14 +103,13 @@ export function UserProfileForm({ defaultValues, onSaveSuccess }: UserProfileFor
     try {
       const profileDataToSave = {
         name: data.name,
-        // Email is managed by Auth, but we might store it for convenience if needed, though usually not directly editable here.
-        // email: data.email, 
+        // Email is managed by Auth
         allergies: data.allergies, // Already transformed to array by Zod
         foodPreferences: data.foodPreferences, // Already transformed to array by Zod
         timezone: data.timezone,
         averageCycleLength: data.averageCycleLength || null,
         averagePeriodDuration: data.averagePeriodDuration || null,
-        updatedAt: new Date(),
+        updatedAt: new Date(), // Using Firestore serverTimestamp is also an option here
       };
 
       await setDoc(doc(db, "users", currentUser.uid), profileDataToSave, { merge: true });
@@ -121,11 +120,15 @@ export function UserProfileForm({ defaultValues, onSaveSuccess }: UserProfileFor
       if (onSaveSuccess) {
         onSaveSuccess(data);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving profile:", error);
+      let description = "Could not save your profile. Please try again.";
+      if (error.code === 'unavailable' || (error.message && typeof error.message === 'string' && error.message.toLowerCase().includes('offline'))) {
+        description = "You appear to be offline. Please check your connection and try again.";
+      }
       toast({
         title: "Save Failed",
-        description: "Could not save your profile. Please try again.",
+        description: description,
         variant: "destructive",
       });
     } finally {
@@ -174,7 +177,7 @@ export function UserProfileForm({ defaultValues, onSaveSuccess }: UserProfileFor
               <FormControl>
                 <Textarea placeholder="e.g., peanuts, shellfish, gluten" {...field} 
                   // Zod transform handles the array conversion, so field.value is string here
-                  value={Array.isArray(field.value) ? (field.value as string[]).join(', ') : field.value}
+                  value={Array.isArray(field.value) ? (field.value as string[]).join(', ') : field.value || ""}
                   onChange={e => field.onChange(e.target.value)}
                 />
               </FormControl>
@@ -192,7 +195,7 @@ export function UserProfileForm({ defaultValues, onSaveSuccess }: UserProfileFor
               <FormLabel>Food Preferences</FormLabel>
               <FormControl>
                 <Textarea placeholder="e.g., vegetarian, likes dark chocolate, dislikes mint" {...field} 
-                  value={Array.isArray(field.value) ? (field.value as string[]).join(', ') : field.value}
+                  value={Array.isArray(field.value) ? (field.value as string[]).join(', ') : field.value || ""}
                   onChange={e => field.onChange(e.target.value)}
                 />
               </FormControl>

@@ -77,9 +77,13 @@ export default function DashboardPage() {
         setUserProfile({ averageCycleLength: null, averagePeriodDuration: null }); // Default if no profile
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching dashboard data:", err);
-      setError("Could not load dashboard data. Please try refreshing.");
+      if (err.code === 'unavailable' || (err.message && typeof err.message === 'string' && err.message.toLowerCase().includes('offline'))) {
+        setError("You appear to be offline. Please check your internet connection to load dashboard data.");
+      } else {
+        setError("Could not load dashboard data. Please try refreshing.");
+      }
       setPeriodLogs([]);
       setUserProfile(null);
     } finally {

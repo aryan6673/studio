@@ -28,6 +28,7 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const [profileData, setProfileData] = useState<Partial<UserProfileFormData> | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); // Added error state
 
   const fetchProfileData = useCallback(async () => {
     if (!currentUser) {
@@ -35,6 +36,7 @@ export default function ProfilePage() {
       return;
     }
     setDataLoading(true);
+    setError(null); // Reset error state
     try {
       const docRef = doc(db, "users", currentUser.uid);
       const docSnap = await getDoc(docRef);
@@ -61,15 +63,19 @@ export default function ProfilePage() {
           averagePeriodDuration: null,
         });
       }
-    } catch (error) {
-      console.error("Error fetching profile data:", error);
+    } catch (err: any) {
+      console.error("Error fetching profile data:", err);
+      let errorMessage = "Could not load your profile data.";
+      if (err.code === 'unavailable' || (err.message && typeof err.message === 'string' && err.message.toLowerCase().includes('offline'))) {
+        errorMessage = "You appear to be offline. Please check your internet connection to load profile data.";
+      }
+      setError(errorMessage); // Set error message for display
       toast({
         title: "Error",
-        description: "Could not load your profile data.",
+        description: errorMessage,
         variant: "destructive",
       });
-      // Fallback to auth data if Firestore fails
-       setProfileData({
+       setProfileData({ // Fallback to auth data if Firestore fails
         name: currentUser.displayName || "",
         email: currentUser.email || "",
         allergies: [],
@@ -93,7 +99,7 @@ export default function ProfilePage() {
   }, [currentUser, authLoading, router]); // fetchProfileData is memoized
 
 
-  if (authLoading || dataLoading) {
+  if (authLoading || (dataLoading && !error)) { // Check !error to avoid showing skeleton when error message is ready
     return (
       <div className="max-w-2xl mx-auto">
         <Card>
@@ -134,6 +140,21 @@ export default function ProfilePage() {
     );
   }
 
+  if (error && !profileData) { // Show error if data fetching failed and there's no profile data to show
+     return (
+        <Card className="max-w-md mx-auto mt-10 text-center">
+            <CardHeader>
+                <CardTitle className="text-destructive">Error Loading Profile</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p>{error}</p>
+                <Button onClick={fetchProfileData} className="mt-4">Try Again</Button>
+            </CardContent>
+        </Card>
+    );
+  }
+
+
   return (
     <div className="max-w-2xl mx-auto">
       <Card>
@@ -141,6 +162,7 @@ export default function ProfilePage() {
           <CardTitle>Your Profile</CardTitle>
           <CardDescription>
             Manage your personal information for CycleBloom.
+            {error && <p className="text-destructive text-xs mt-1">{error}</p>} 
           </CardDescription>
         </CardHeader>
         <CardContent>
