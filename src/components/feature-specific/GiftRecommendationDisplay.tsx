@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Gift, RefreshCw } from "lucide-react";
+import { Gift, RefreshCw, ExternalLink } from "lucide-react";
 import React, { useState, useEffect, useCallback } from "react";
 
 interface GiftRecommendationDisplayProps {
@@ -53,6 +53,38 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
     fetchRecommendation();
   }, [fetchRecommendation]);
 
+  const renderBuyButtons = () => {
+    if (!recommendation || !recommendation.giftRecommendation) return null;
+
+    const searchTerm = encodeURIComponent(recommendation.giftRecommendation);
+    const blinkitUrl = `https://blinkit.com/s/?q=${searchTerm}`;
+    const instamartUrl = `https://www.swiggy.com/instamart/search?query=${searchTerm}`;
+    const amazonUrl = `https://www.amazon.com/s?k=${searchTerm}`;
+
+    return (
+      <div className="mt-6 pt-6 border-t">
+        <h4 className="text-md font-semibold mb-3 text-foreground/90 dark:text-foreground/80">Find this gift:</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Button asChild variant="outline">
+            <a href={blinkitUrl} target="_blank" rel="noopener noreferrer">
+              Search on Blinkit <ExternalLink className="ml-2 h-4 w-4" />
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href={instamartUrl} target="_blank" rel="noopener noreferrer">
+              Search on Instamart <ExternalLink className="ml-2 h-4 w-4" />
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href={amazonUrl} target="_blank" rel="noopener noreferrer">
+              Search on Amazon <ExternalLink className="ml-2 h-4 w-4" />
+            </a>
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <Button onClick={fetchRecommendation} disabled={isLoading} className="w-full sm:w-auto">
@@ -66,7 +98,7 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
             <Skeleton className="h-6 w-3/4" />
             <Skeleton className="h-4 w-1/2" />
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div className="space-y-2 flex-1">
               <Skeleton className="h-5 w-full" />
               <Skeleton className="h-4 w-5/6" />
@@ -99,6 +131,7 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
                 {recommendation.reasoning}
               </p>
             </div>
+            {renderBuyButtons()}
           </CardContent>
         </Card>
       )}
