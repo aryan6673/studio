@@ -1,26 +1,7 @@
-import { Button } from "@/components/ui/button";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditCard, PlusCircle } from "lucide-react";
-import { toast } from "@/hooks/use-toast"; // Import directly if useToast is client-side only
-
-// Mock client component to use toast
-function WalletActions() {
-  "use client"; // This component needs to be client-side to use toast
-  const handleAddCredits = () => {
-    toast({
-      title: "Credits Added (Mock)",
-      description: "100 credits have been added to your wallet.",
-    });
-  };
-
-  return (
-    <Button onClick={handleAddCredits} className="w-full sm:w-auto">
-      <PlusCircle className="mr-2 h-5 w-5" />
-      Add Credits (Mock)
-    </Button>
-  );
-}
-
+import { CreditCard } from "lucide-react";
+import { WalletActions } from "@/components/feature-specific/WalletActions";
 
 export default function WalletPage() {
   // Mock wallet data
