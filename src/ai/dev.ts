@@ -3,4 +3,4 @@ import { config } from 'dotenv';
 config();
 
 import '@/ai/flows/recommend-gifts.ts';
-import '@/ai/flows/predict-cycle-flow.ts';
+// import '@/ai/flows/predict-cycle-flow.ts'; // Removed dashboard-related flow
