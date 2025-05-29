@@ -31,6 +31,7 @@ export default function DashboardPage() {
       setDataLoading(false);
       setPeriodLogs([]);
       setUserProfile(null);
+      setError(null); // Clear previous errors if user logs out
       return;
     }
 
@@ -39,7 +40,7 @@ export default function DashboardPage() {
     try {
       // Fetch period logs
       const logsCollectionRef = collection(db, "users", currentUser.uid, "periodLogs");
-      const q = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24)); // Fetch more for AI
+      const q = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24));
       const logsSnapshot = await getDocs(q);
       const fetchedLogs = logsSnapshot.docs.map(doc => {
         const data = doc.data();
@@ -60,7 +61,6 @@ export default function DashboardPage() {
                  startDate = null;
             }
         }
-
 
         let endDate: Date | undefined = undefined;
         if (endDateString && typeof endDateString === 'string') {
@@ -105,21 +105,21 @@ export default function DashboardPage() {
       }
 
     } catch (err: any) {
-      console.error("Error fetching dashboard data:", err); // This log is helpful for you to see the raw error.
+      console.error("Raw error object in fetchDashboardData:", err); // Log the raw error object
       
-      const message = err.message ? String(err.message).toLowerCase() : "";
-      const code = err.code;
+      const errString = String(err).toLowerCase(); // Convert the whole error object to a lowercased string
+      const errMessageString = err.message ? String(err.message).toLowerCase() : "";
 
-      if (code === 'unavailable' || 
-          message.includes('client is offline') || 
-          message.includes('network request failed') || 
-          message.includes('failed to fetch') ||
-          message.includes('internet connection')) {
+      if (errString.includes("client is offline") || errMessageString.includes("client is offline") || 
+          errString.includes("network request failed") || errMessageString.includes("network request failed") ||
+          errString.includes("failed to fetch") || errMessageString.includes("failed to fetch") ||
+          errString.includes("internet connection") || errMessageString.includes("internet connection") ||
+          (err.code && String(err.code).toLowerCase() === 'unavailable')) {
         setError("You appear to be offline or there's a network issue. Please check your internet connection and try again.");
-      } else if (code === 'permission-denied') {
+      } else if (err.code && String(err.code).toLowerCase() === 'permission-denied') {
         setError("You do not have permission to access this data. Please ensure you are logged in with the correct account or contact support if this persists.");
       } else {
-        // Fallback to a message that includes the actual error, if available.
+        // Fallback to a message that includes the actual error message, if available.
         setError(`Could not load dashboard data. Error: ${err.message || String(err) || 'Unknown error'}`);
       }
       
@@ -131,10 +131,11 @@ export default function DashboardPage() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading) { // Only proceed if auth state is resolved
       fetchDashboardData();
     }
-  }, [currentUser, authLoading, fetchDashboardData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, authLoading]); // fetchDashboardData is memoized, dependency is currentUser
 
   if (authLoading || (dataLoading && currentUser && !error)) {
     return (
@@ -166,7 +167,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (!currentUser) {
+  if (!currentUser && !authLoading) { // Ensure auth is not loading before showing login prompt
     return (
       <Card className="max-w-md mx-auto mt-10 text-center">
         <CardHeader>
@@ -185,7 +186,7 @@ export default function DashboardPage() {
     );
   }
   
-  if (error) {
+  if (error) { // This is the primary error display
     return (
         <Card className="max-w-lg mx-auto mt-10 text-center">
             <CardHeader>
@@ -193,9 +194,22 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
                 <p className="text-destructive-foreground bg-destructive/10 p-3 rounded-md">{error}</p>
-                <Button onClick={fetchDashboardData} className="mt-4">Try Again</Button>
+                <Button onClick={fetchDashboardData} className="mt-4" disabled={dataLoading || authLoading}>
+                  {dataLoading ? "Retrying..." : "Try Again"}
+                </Button>
             </CardContent>
         </Card>
+    );
+  }
+  
+  // Only render dashboard content if there's a currentUser and no error
+  if (!currentUser || periodLogs === null || userProfile === null) {
+    // This case should ideally be covered by loading or error states,
+    // but it's a fallback if data isn't ready for an unexpected reason.
+    return (
+        <div className="text-center py-10">
+            <p>Loading dashboard data or not logged in...</p>
+        </div>
     );
   }
   
@@ -256,3 +270,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
