@@ -9,11 +9,10 @@ import {
   PenSquare,
   Gift,
   Sparkles,
-  Wallet,
   User,
   LogIn,
   UserPlus,
-  LogOut, // Added LogOut
+  LogOut, 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -22,23 +21,22 @@ import {
   SidebarMenuButton,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useAuth } from "@/contexts/AuthContext"; // Import useAuth
+import { useAuth } from "@/contexts/AuthContext"; 
 
 export interface NavItem {
   href: string;
   label: string;
   icon: React.ReactElement;
   matchExact?: boolean;
-  authRequired?: boolean; // To show only when logged in
-  publicOnly?: boolean; // To show only when logged out
+  authRequired?: boolean; 
+  publicOnly?: boolean; 
 }
 
 const allNavItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: <LayoutDashboard />, matchExact: true },
   { href: "/log-period", label: "Log Period", icon: <PenSquare />, authRequired: true },
   { href: "/recommendations", label: "Recommendations", icon: <Gift />, authRequired: true },
-  { href: "/wellness", label: "Wellness Tips", icon: <Sparkles /> }, // Public for now
-  { href: "/wallet", label: "Wallet", icon: <Wallet />, authRequired: true },
+  { href: "/wellness", label: "Wellness Tips", icon: <Sparkles /> }, 
   { href: "/profile", label: "Profile", icon: <User />, authRequired: true },
   { href: "/login", label: "Login", icon: <LogIn />, publicOnly: true },
   { href: "/signup", label: "Sign Up", icon: <UserPlus />, publicOnly: true },
@@ -47,7 +45,7 @@ const allNavItems: NavItem[] = [
 export function SidebarNav({ isMobile = false }: { isMobile?: boolean }) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
-  const { currentUser, logout } = useAuth(); // Get currentUser and logout
+  const { currentUser, logout } = useAuth(); 
 
   const navItems = allNavItems.filter(item => {
     if (item.authRequired && !currentUser) return false;
@@ -77,25 +75,6 @@ export function SidebarNav({ isMobile = false }: { isMobile?: boolean }) {
           </SidebarMenuItem>
         );
       })}
-       {/* Logout button can be added here if desired, or kept in AppHeader dropdown */}
-       {/* {currentUser && (
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            onClick={async () => {
-              await logout();
-              if (isMobile) setOpenMobile(false);
-              // router.push('/login'); // Handled in AppHeader
-            }}
-            className={cn(isMobile && "text-base h-12")}
-            tooltip={{ children: "Logout", className: "md:block hidden" }}
-          >
-            <LogOut className="h-5 w-5" />
-            <span className={cn(isMobile ? "inline" : "group-data-[collapsible=icon]:hidden")}>
-              Logout
-            </span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      )} */}
     </SidebarMenu>
   );
 }

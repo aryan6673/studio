@@ -3,10 +3,10 @@
 
 import { recommendGifts, type RecommendGiftsInput, type RecommendGiftsOutput } from "@/ai/flows/recommend-gifts";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Gift, Send, RefreshCw } from "lucide-react";
+import { Gift, RefreshCw } from "lucide-react";
 import React, { useState, useEffect, useCallback } from "react";
 
 interface GiftRecommendationDisplayProps {
@@ -53,14 +53,6 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
     fetchRecommendation();
   }, [fetchRecommendation]);
 
-
-  const handleArrangeDelivery = () => {
-    toast({
-      title: "Delivery Arranged (Mock)",
-      description: `"${recommendation?.giftRecommendation}" will be delivered soon. Credits deducted from wallet.`,
-    });
-  };
-
   return (
     <div className="space-y-6">
       <Button onClick={fetchRecommendation} disabled={isLoading} className="w-full sm:w-auto">
@@ -84,9 +76,6 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-2/3" />
           </CardContent>
-          <CardFooter>
-            <Skeleton className="h-10 w-36" />
-          </CardFooter>
         </Card>
       )}
 
@@ -111,12 +100,6 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
               </p>
             </div>
           </CardContent>
-          <CardFooter className="bg-muted/50 dark:bg-muted/30 p-4 border-t">
-            <Button onClick={handleArrangeDelivery} className="w-full sm:w-auto ml-auto shadow-sm hover:shadow-md transition-shadow">
-              <Send className="mr-2 h-4 w-4" />
-              Arrange Gift Delivery (Mock)
-            </Button>
-          </CardFooter>
         </Card>
       )}
 

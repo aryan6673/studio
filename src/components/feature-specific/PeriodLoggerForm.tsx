@@ -15,7 +15,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea"; 
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -23,7 +22,6 @@ import { CalendarIcon, Check, ChevronsUpDown } from "lucide-react";
 import { format } from "date-fns";
 import { availableSymptoms, type SymptomOption } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import React from "react";
 
@@ -32,10 +30,8 @@ const periodLogSchema = z.object({
     required_error: "Start date is required.",
   }),
   endDate: z.date().optional(),
-  cycleLength: z.coerce.number().int().positive().optional().nullable(), // Updated schema
+  cycleLength: z.coerce.number().int().positive().optional().nullable(),
   symptoms: z.array(z.string()).optional(),
-  girlName: z.string().min(2, "Name must be at least 2 characters.").optional().or(z.literal("")),
-  address: z.string().min(5, "Address must be at least 5 characters.").optional().or(z.literal("")),
 });
 
 type PeriodLogFormData = z.infer<typeof periodLogSchema>;
@@ -49,22 +45,13 @@ export function PeriodLoggerForm() {
     resolver: zodResolver(periodLogSchema),
     defaultValues: {
       symptoms: [],
-      girlName: "",
-      address: "",
-      cycleLength: null, // Set default to null
+      cycleLength: null, 
     },
   });
 
   function onSubmit(data: PeriodLogFormData) {
-    // In a real app, this would be a server action to save the data
     console.log("Period Log Data:", data);
     let description = `Start Date: ${format(data.startDate, "PPP")}.`;
-    if (data.girlName) {
-      description += ` For: ${data.girlName}.`;
-    }
-    if (data.address) {
-      description += ` Address: ${data.address}.`;
-    }
     description += ` Symptoms: ${data.symptoms?.join(', ') || 'None'}.`;
     
     toast({
@@ -247,50 +234,15 @@ export function PeriodLoggerForm() {
                   type="number"
                   placeholder="e.g., 28"
                   {...field}
-                  value={field.value ?? ""} // Ensure controlled, provide empty string for null/undefined
+                  value={field.value ?? ""} 
                   onChange={event => {
                     const value = event.target.value;
-                    // Convert to null if empty, else convert to number
                     field.onChange(value === "" ? null : Number(value)); 
                   }}
                 />
               </FormControl>
               <FormDescription>
                 Your average cycle length in days. Helps with predictions.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="girlName"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Girl's Name (Optional)</FormLabel>
-              <FormControl>
-                <Input placeholder="Enter name for future gift delivery" {...field} />
-              </FormControl>
-              <FormDescription>
-                Name of the person this log is for (for future gift delivery).
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="address"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Delivery Address (Optional)</FormLabel>
-              <FormControl>
-                <Textarea placeholder="Enter full address for future gift delivery" {...field} />
-              </FormControl>
-              <FormDescription>
-                Address for future gift delivery.
               </FormDescription>
               <FormMessage />
             </FormItem>
