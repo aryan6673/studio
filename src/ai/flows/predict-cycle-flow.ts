@@ -27,14 +27,14 @@ const PredictCycleInputSchema = z.object({
 export type PredictCycleInput = z.infer<typeof PredictCycleInputSchema>;
 
 const PredictedEventSchema = z.object({
-  startDate: z.string().date("Date must be in YYYY-MM-DD string format.").describe("The predicted start date in YYYY-MM-DD format."),
-  endDate: z.string().date("Date must be in YYYY-MM-DD string format.").describe("The predicted end date in YYYY-MM-DD format."),
+  startDate: z.string().describe("The predicted start date in YYYY-MM-DD format."),
+  endDate: z.string().describe("The predicted end date in YYYY-MM-DD format."),
 });
 
 const PredictCycleOutputSchema = z.object({
   nextPeriod: PredictedEventSchema.optional().describe("The predicted next menstrual period."),
   nextFertileWindow: PredictedEventSchema.optional().describe("The predicted next fertile window."),
-  nextOvulationDate: z.string().date("Date must be in YYYY-MM-DD string format.").optional().describe("The predicted next ovulation date in YYYY-MM-DD format."),
+  nextOvulationDate: z.string().optional().describe("The predicted next ovulation date in YYYY-MM-DD format. Must be a YYYY-MM-DD string."),
   reasoning: z.string().optional().describe("A brief explanation of how the prediction was made, or any uncertainties."),
   error: z.string().optional().describe("Any error message if prediction failed, e.g., insufficient data.")
 });
@@ -113,24 +113,21 @@ const predictCycleFlow = ai.defineFlow(
         // Basic validation for predicted period dates
         if (output.nextPeriod && output.nextPeriod.startDate) {
             try {
-                const nextPeriodStartDate = new Date(output.nextPeriod.startDate);
-                const currentDateObj = new Date(input.currentDate);
+                // Try to parse to ensure AI is sending valid date strings, even if not strictly enforced by Zod .date() anymore
+                const nextPeriodStartDate = new Date(output.nextPeriod.startDate + "T00:00:00"); // Ensure parsing as local date
+                const currentDateObj = new Date(input.currentDate + "T00:00:00");
                 
                 if (nextPeriodStartDate < currentDateObj) {
-                    // If end date is also in the past, it's an old prediction.
-                    if (output.nextPeriod.endDate && new Date(output.nextPeriod.endDate) < currentDateObj) {
+                    if (output.nextPeriod.endDate && new Date(output.nextPeriod.endDate + "T00:00:00") < currentDateObj) {
                         return { 
                             error: "AI predicted a period that has already passed. Consider logging more recent data or adjusting settings.", 
                             reasoning: output.reasoning || "Prediction adjusted due to past date." 
                         };
                     }
-                    // If start date is past but end date is future, it's an ongoing predicted period, which might be acceptable depending on interpretation.
-                    // For now, we'll let it pass if end date is not also in the past.
                 }
             } catch (dateError) {
-                // This catch is for invalid date strings from the AI, though Zod should catch this first.
-                console.error("Error parsing date from AI prediction:", dateError, output.nextPeriod);
-                return { error: "AI returned an invalid date format for the next period.", reasoning: output.reasoning };
+                console.error("Error parsing date from AI prediction (AI returned non-YYYY-MM-DD string likely):", dateError, output.nextPeriod);
+                return { error: "AI returned an invalid date string format for the next period.", reasoning: output.reasoning };
             }
         }
         return output;
@@ -143,9 +140,10 @@ const predictCycleFlow = ai.defineFlow(
             errorMessage += ` Details: ${e}`;
         }
         
-        // Attempt to get more specific Genkit/Google AI error details
-        if (e && e.cause && e.cause.message) { // GoogleGenerativeAIError often has a cause
+        if (e && e.cause && typeof e.cause === 'object' && e.cause.message) { 
           errorMessage += ` Cause: ${e.cause.message}`;
+        } else if (e && e.cause && typeof e.cause === 'string') {
+          errorMessage += ` Cause: ${e.cause}`;
         } else if (e && e.details) { 
           errorMessage += ` Genkit details: ${e.details}`;
         }
@@ -160,3 +158,4 @@ const predictCycleFlow = ai.defineFlow(
     }
   }
 );
+
