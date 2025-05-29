@@ -24,67 +24,71 @@ export default function DashboardPage() {
 
   const [periodLogs, setPeriodLogs] = useState<PeriodLog[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
-  const [isDataLoading, setIsDataLoading] = useState(true); // True initially to show loading for auth then data
+  const [isDataLoading, setIsDataLoading] = useState(true); // True initially for auth loading
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Log critical state changes for debugging
   useEffect(() => {
-    console.log("DashboardPage: FetchError state changed to:", fetchError);
-  }, [fetchError]);
+    console.log(`DashboardPage State Change: authLoading: ${authLoading}, currentUser: ${!!currentUser}, isDataLoading: ${isDataLoading}, fetchError: ${fetchError}`);
+  }, [authLoading, currentUser, isDataLoading, fetchError]);
 
   const fetchDashboardData = useCallback(async (userId: string) => {
-    console.log(`DashboardPage: Starting fetchDashboardData for userId: ${userId}`);
+    console.log(`DashboardPage: fetchDashboardData called for userId: ${userId}`);
     setIsDataLoading(true);
-    // Do NOT setFetchError(null) here; it's cleared by retry or auth change
+    // Do NOT clear fetchError here; it's cleared by retry or auth state change.
+
+    let localError = null;
 
     try {
       console.log("DashboardPage: Attempting to fetch period logs.");
       const logsCollectionRef = collection(db, "users", userId, "periodLogs");
-      // Fetch up to 24 most recent logs, sorted by start date descending from Firestore.
-      // The AI flow sorts them ascending later if needed.
       const logsQuery = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24));
       const logsSnapshot = await getDocs(logsQuery);
-      const fetchedLogs: PeriodLog[] = logsSnapshot.docs.map(docSnap => {
-        const data = docSnap.data();
-        let startDate: Date | null = null;
-        // Handle both Timestamp and string dates from Firestore
-        if (data.startDate) {
-          if (data.startDate instanceof Timestamp) {
-            startDate = data.startDate.toDate();
-          } else if (typeof data.startDate === 'string') {
-            const parsed = parseISO(data.startDate); // Expects "YYYY-MM-DD" or full ISO
-            if (isValid(parsed)) startDate = parsed;
-          }
-        }
-        if (!startDate || !isValid(startDate)) {
-            console.warn("DashboardPage: Invalid or missing startDate from Firestore doc:", docSnap.id, "Data:", data.startDate);
-            return null; // Skip this log
-        }
-
-        let endDate: Date | undefined = undefined;
-        if (data.endDate) {
-          if (data.endDate instanceof Timestamp) {
-            endDate = data.endDate.toDate();
-          } else if (typeof data.endDate === 'string') {
-            const parsed = parseISO(data.endDate);
-            if (isValid(parsed)) endDate = parsed;
-          }
-        }
-        if (endDate && !isValid(endDate)) {
-            console.warn("DashboardPage: Invalid endDate from Firestore doc:", docSnap.id, "Data:", data.endDate);
-            endDate = undefined; // Treat as if no end date
-        }
-        
-        return {
-          id: docSnap.id,
-          startDate: startDate,
-          endDate: endDate,
-          symptoms: data.symptoms || [],
-          // cycleLength: data.cycleLength, // cycleLength is part of userProfile now
-        } as PeriodLog;
-      }).filter(log => log !== null) as PeriodLog[];
       
-      setPeriodLogs(fetchedLogs);
-      console.log(`DashboardPage: Fetched ${fetchedLogs.length} period logs.`);
+      const fetchedLogsProcessing: PeriodLog[] = [];
+      logsSnapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        try {
+          let startDate: Date | null = null;
+          if (data.startDate) {
+            if (data.startDate instanceof Timestamp) {
+              startDate = data.startDate.toDate();
+            } else if (typeof data.startDate === 'string') {
+              const parsed = parseISO(data.startDate);
+              if (isValid(parsed)) startDate = parsed;
+              else console.warn(`DashboardPage: Invalid startDate string from Firestore doc ${docSnap.id}:`, data.startDate);
+            }
+          }
+          if (!startDate || !isValid(startDate)) {
+              console.error(`DashboardPage: Skipping log due to invalid/missing startDate. Doc ID: ${docSnap.id}, Data:`, data);
+              return; // Skip this log
+          }
+
+          let endDate: Date | undefined = undefined;
+          if (data.endDate) {
+            if (data.endDate instanceof Timestamp) {
+              endDate = data.endDate.toDate();
+            } else if (typeof data.endDate === 'string') {
+              const parsedEndDate = parseISO(data.endDate);
+              if (isValid(parsedEndDate)) endDate = parsedEndDate;
+              else console.warn(`DashboardPage: Invalid endDate string from Firestore doc ${docSnap.id}:`, data.endDate);
+            }
+          }
+          
+          fetchedLogsProcessing.push({
+            id: docSnap.id,
+            startDate: startDate,
+            endDate: endDate,
+            symptoms: data.symptoms || [],
+          } as PeriodLog);
+
+        } catch (parseError: any) {
+            console.error(`DashboardPage: Error parsing date during log mapping for doc ${docSnap.id}:`, parseError.message, "Data:", data);
+            // Do not push this log or rethrow here, let the overall fetch handle it if it's critical
+        }
+      });
+      setPeriodLogs(fetchedLogsProcessing);
+      console.log(`DashboardPage: Processed ${fetchedLogsProcessing.length} period logs.`);
 
       console.log("DashboardPage: Attempting to fetch user profile.");
       const profileDocRef = doc(db, "users", userId);
@@ -96,93 +100,82 @@ export default function DashboardPage() {
           averageCycleLength: profileData.averageCycleLength === undefined ? null : profileData.averageCycleLength,
           averagePeriodDuration: profileData.averagePeriodDuration === undefined ? null : profileData.averagePeriodDuration,
         });
-        console.log("DashboardPage: User profile data fetched:", { averageCycleLength: profileData.averageCycleLength, averagePeriodDuration: profileData.averagePeriodDuration });
+        console.log("DashboardPage: User profile data fetched.");
       } else {
-        setUserProfile({ averageCycleLength: null, averagePeriodDuration: null }); // Default if no profile
+        setUserProfile({ averageCycleLength: null, averagePeriodDuration: null });
         console.log("DashboardPage: No user profile document found, using defaults.");
       }
-      console.log("DashboardPage: fetchDashboardData completed successfully.");
-      setFetchError(null); // Clear error only on successful fetch
+      
+      setFetchError(null); // Clear error only if ALL fetches and processing were successful
 
     } catch (err: any) {
-      console.error("DashboardPage: --- RAW ERROR OBJECT IN fetchDashboardData ---", err);
-      console.error("DashboardPage: Error Name:", err.name);
-      console.error("DashboardPage: Error Message:", err.message);
-      console.error("DashboardPage: Error Code:", err.code);
-
-      let friendlyErrorMessage: string;
+      console.error("DashboardPage: --- RAW ERROR OBJECT IN fetchDashboardData CATCH ---", err);
+      console.error("DashboardPage: Error Name:", err.name, "Code:", err.code, "Message:", err.message);
 
       if (err.name === 'FirebaseError') {
         if (err.code === 'permission-denied') {
-          friendlyErrorMessage = "Permission Denied: You do not have permission to access this data. Please ensure Firestore security rules allow reads for the authenticated user on 'users/{userId}' and 'users/{userId}/periodLogs'.";
+          localError = "Permission Denied: You don't have access to this data.";
         } else if (err.code === 'unavailable') {
-          friendlyErrorMessage = "Network Issue: Could not connect to services. Please check your internet connection and try again.";
+          localError = "Network Issue: Could not connect to services. Please check your internet connection and try again.";
         } else {
-          // For other Firebase errors, be more specific
-          friendlyErrorMessage = `Firebase Error (code: ${err.code}): ${err.message || 'Please try again.'}`;
+          localError = `Firebase Error (code: ${err.code}): ${err.message || 'An error occurred.'}`;
         }
-      } else if (typeof err.message === 'string' && (
-          err.message.toLowerCase().includes('network request failed') ||
-          err.message.toLowerCase().includes('failed to fetch') ||
-          err.message.toLowerCase().includes('no internet connection')
-        )
-      ) {
-        friendlyErrorMessage = "Network Issue: Could not connect to services. Please check your internet connection and try again.";
+      } else if (typeof err.message === 'string' && 
+                 (err.message.toLowerCase().includes('offline') || 
+                  err.message.toLowerCase().includes('network') ||
+                  err.message.toLowerCase().includes('failed to fetch'))) {
+        localError = "Network Issue: You appear to be offline or there's a network problem.";
       } else {
-        friendlyErrorMessage = `Error loading dashboard data: ${err.message || 'An unknown error occurred.'}`;
+        localError = `Error loading dashboard: ${err.message || 'An unknown error occurred.'}`;
       }
-      
-      console.log("DashboardPage: Setting fetchError to:", friendlyErrorMessage);
-      setFetchError(friendlyErrorMessage);
+      console.log("DashboardPage: Setting fetchError state to:", localError);
+      setFetchError(localError);
     } finally {
-      console.log("DashboardPage: Setting isDataLoading to false in fetchDashboardData finally block.");
+      console.log("DashboardPage: fetchDashboardData finally block. Setting isDataLoading to false.");
       setIsDataLoading(false);
     }
-  }, []); // No dependencies, userId is passed as argument
+  }, []); // No dependencies as userId is passed as argument, setters are stable
 
   useEffect(() => {
-    console.log("DashboardPage: Auth or loading state changed. AuthLoading:", authLoading, "CurrentUser:", !!currentUser?.uid, "Existing fetchError:", fetchError);
     if (authLoading) {
-      console.log("DashboardPage: Auth is loading. Setting isDataLoading=true, clearing fetchError.");
-      setIsDataLoading(true); // Keep true while auth resolves
-      setFetchError(null); 
-    } else if (currentUser && currentUser.uid) {
-      // Only fetch if there's no current error that needs user action (like "Try Again")
-      // or if we haven't loaded data yet for this user.
-      // The `isDataLoading` also acts as a guard against re-fetching if data is already loaded.
-      if (!fetchError) { // If there is a fetchError, user must click "Try Again"
-        console.log("DashboardPage: User is authenticated, no current error. Calling fetchDashboardData.");
-        fetchDashboardData(currentUser.uid).catch(e => {
-            // This catch is for unhandled promise rejections from fetchDashboardData,
-            // though fetchDashboardData itself has a try/catch.
-            console.error("DashboardPage: Critical error during fetchDashboardData invocation or its promise chain:", e);
-            setFetchError("A critical error occurred while trying to load dashboard data.");
-            setIsDataLoading(false); 
-        });
+      setIsDataLoading(true);
+      setFetchError(null); // Clear errors while auth is resolving
+      return;
+    }
+
+    if (currentUser && currentUser.uid) {
+      // Only fetch data if there's no existing error OR if data hasn't been loaded yet.
+      // This prevents re-fetching automatically if an error state already exists (user must click "Try Again").
+      const noDataLoadedYet = periodLogs.length === 0 && userProfile === null;
+      if (!fetchError || noDataLoadedYet) {
+        console.log("DashboardPage: User authenticated. No existing error or no data loaded yet. Fetching data...");
+        fetchDashboardData(currentUser.uid);
+      } else if (fetchError) {
+        console.log("DashboardPage: User authenticated, but fetchError exists. Not re-fetching. Error:", fetchError);
+        setIsDataLoading(false); // Ensure loading is off if an error is present
       } else {
-        console.log("DashboardPage: User is authenticated, but an error exists. Not refetching automatically. Error:", fetchError);
-        setIsDataLoading(false); // Ensure loading is false if an error is already present
+         console.log("DashboardPage: User authenticated, data already present, no error. Not re-fetching.");
+         setIsDataLoading(false); // Data present, not loading.
       }
-    } else if (!currentUser && !authLoading) {
-      console.log("DashboardPage: No user and not authLoading. Clearing data/error, setting isDataLoading=false.");
-      setIsDataLoading(false);
-      setFetchError(null);
+    } else { // No currentUser and not authLoading (i.e., logged out)
+      console.log("DashboardPage: No user logged in. Clearing data.");
       setPeriodLogs([]);
       setUserProfile(null);
+      setFetchError(null);
+      setIsDataLoading(false);
     }
-  // fetchDashboardData is memoized and stable.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.uid, authLoading]);
+  }, [currentUser?.uid, authLoading]); // fetchDashboardData is memoized so it's stable
 
   const handleRetry = () => {
     console.log("DashboardPage: Retry button clicked.");
     if (currentUser && currentUser.uid) {
-      setFetchError(null); // Explicitly clear error before retrying
+      setFetchError(null); // Clear the error before retrying
       // isDataLoading will be set to true at the start of fetchDashboardData
       fetchDashboardData(currentUser.uid);
     } else {
-      console.warn("DashboardPage: Retry clicked, but no current user. Prompting login.");
-      setFetchError("Please log in to load your dashboard.");
+      // This case should ideally be rare if the button is only shown when an error occurred for a logged-in user attempt.
+      setFetchError("Please log in again to load your dashboard."); 
     }
   };
 
@@ -253,8 +246,7 @@ export default function DashboardPage() {
   }
   
   // Success State: User exists, no error, data finished loading
-  console.log("DashboardPage: RENDERING - Data Loaded State. Logs:", periodLogs.length, "Profile:", userProfile);
-  // Ensure periodLogs is an array and filter out any null/invalid logs again, just in case.
+  console.log("DashboardPage: RENDERING - Data Loaded State. Logs:", periodLogs.length, "Profile:", !!userProfile);
   const validPeriodLogs = Array.isArray(periodLogs) ? periodLogs.filter(log => log && log.startDate && isValid(log.startDate)) : [];
   const displayProfile = userProfile || { averageCycleLength: null, averagePeriodDuration: null };
 
@@ -268,8 +260,8 @@ export default function DashboardPage() {
         <CardContent>
           <CycleCalendar 
             logs={validPeriodLogs} 
-            cycleLength={displayProfile.averageCycleLength ?? undefined} // Pass undefined if null
-            averagePeriodDuration={displayProfile.averagePeriodDuration ?? undefined} // Pass undefined if null
+            cycleLength={displayProfile.averageCycleLength ?? undefined} 
+            averagePeriodDuration={displayProfile.averagePeriodDuration ?? undefined}
           />
         </CardContent>
       </Card>
