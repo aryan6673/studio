@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +15,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea"; // Added Textarea import
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,8 @@ const periodLogSchema = z.object({
   endDate: z.date().optional(),
   cycleLength: z.coerce.number().int().positive().optional(),
   symptoms: z.array(z.string()).optional(),
+  girlName: z.string().min(2, "Name must be at least 2 characters.").optional().or(z.literal("")),
+  address: z.string().min(5, "Address must be at least 5 characters.").optional().or(z.literal("")),
 });
 
 type PeriodLogFormData = z.infer<typeof periodLogSchema>;
@@ -45,15 +49,26 @@ export function PeriodLoggerForm() {
     resolver: zodResolver(periodLogSchema),
     defaultValues: {
       symptoms: [],
+      girlName: "",
+      address: "",
     },
   });
 
   function onSubmit(data: PeriodLogFormData) {
     // In a real app, this would be a server action to save the data
     console.log("Period Log Data:", data);
+    let description = `Start Date: ${format(data.startDate, "PPP")}.`;
+    if (data.girlName) {
+      description += ` For: ${data.girlName}.`;
+    }
+    if (data.address) {
+      description += ` Address: ${data.address}.`;
+    }
+    description += ` Symptoms: ${data.symptoms?.join(', ') || 'None'}.`;
+    
     toast({
       title: "Period Logged",
-      description: `Start Date: ${format(data.startDate, "PPP")}. Symptoms: ${data.symptoms?.join(', ') || 'None'}.`,
+      description: description,
     });
     form.reset();
     setSelectedSymptoms([]);
@@ -231,6 +246,40 @@ export function PeriodLoggerForm() {
               </FormControl>
               <FormDescription>
                 Your average cycle length in days. Helps with predictions.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="girlName"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Girl's Name (Optional)</FormLabel>
+              <FormControl>
+                <Input placeholder="Enter name for future gift delivery" {...field} />
+              </FormControl>
+              <FormDescription>
+                Name of the person this log is for (for future gift delivery).
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="address"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Delivery Address (Optional)</FormLabel>
+              <FormControl>
+                <Textarea placeholder="Enter full address for future gift delivery" {...field} />
+              </FormControl>
+              <FormDescription>
+                Address for future gift delivery.
               </FormDescription>
               <FormMessage />
             </FormItem>
