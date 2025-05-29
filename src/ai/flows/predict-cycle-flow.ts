@@ -43,11 +43,10 @@ export type PredictCycleOutput = z.infer<typeof PredictCycleOutputSchema>;
 export async function predictCycle(input: PredictCycleInput): Promise<PredictCycleOutput> {
   // Ensure logs are sorted, most recent first, then take up to 12.
   // The AI prompt will expect most recent last for easier chronological processing if we iterate.
-  // However, for the full context, just providing a few recent ones should be okay.
   const processedLogs = input.periodLogs
     .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
-    .slice(0, 12) // Take last 12 logs
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()); // Then sort them oldest to newest for prompt
+    .slice(0, 12)
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
   return predictCycleFlow({...input, periodLogs: processedLogs});
 }
@@ -69,28 +68,30 @@ Guidelines:
 - Ensure all predicted start dates are after or on the 'currentDate'. If a predicted event would have started in the past based on calculations, adjust it to the next cycle or clearly state why a prediction cannot be made for the immediate future.
 `;
 
+const userPromptContent = `
+Current Date: {{currentDate}}
+
+User's Average Cycle Length: {{#if averageCycleLength}}{{averageCycleLength}} days{{else}}Not provided{{/if}}
+User's Average Period Duration: {{#if averagePeriodDuration}}{{averagePeriodDuration}} days{{else}}Not provided{{/if}}
+
+Period Logs (up to 12 most recent, sorted chronologically):
+{{#if periodLogs.length}}
+  {{#each periodLogs}}
+  - Log: Start Date: {{startDate}}{{#if endDate}}, End Date: {{endDate}}{{else}}, End Date: Not specified{{/if}}
+  {{/each}}
+{{else}}
+  No period logs provided.
+{{/if}}
+
+Based on this information, provide the predictions.
+`;
+
 const predictCyclePrompt = ai.definePrompt({
     name: 'predictCyclePrompt',
     input: { schema: PredictCycleInputSchema },
     output: { schema: PredictCycleOutputSchema },
     system: systemPrompt,
-    prompt: `
-    Current Date: {{currentDate}}
-
-    User's Average Cycle Length: {{#if averageCycleLength}}{{averageCycleLength}} days{{else}}Not provided{{/if}}
-    User's Average Period Duration: {{#if averagePeriodDuration}}{{averagePeriodDuration}} days{{else}}Not provided{{/if}}
-
-    Period Logs (up to 12 most recent, sorted chronologically):
-    {{#if periodLogs.length}}
-      {{#each periodLogs}}
-      - Log: Start Date: {{startDate}}{{#if endDate}}, End Date: {{endDate}}{{else}}, End Date: Not specified{{/if}}
-      {{/each}}
-    {{else}}
-      No period logs provided.
-    {{/if}}
-
-    Based on this information, provide the predictions.
-    `,
+    prompt: userPromptContent,
 });
 
 const predictCycleFlow = ai.defineFlow(
@@ -99,25 +100,63 @@ const predictCycleFlow = ai.defineFlow(
     inputSchema: PredictCycleInputSchema,
     outputSchema: PredictCycleOutputSchema,
   },
-  async (input) => {
+  async (input): Promise<PredictCycleOutput> => {
     try {
-        const { output } = await predictCyclePrompt(input);
-        if (!output) {
-            return { error: "AI model did not return a valid prediction structure." };
+        const result = await predictCyclePrompt(input);
+        
+        if (!result || !result.output) {
+            console.warn("AI model did not return a valid prediction structure. Full result:", result);
+            return { error: "AI model did not return a valid prediction structure. The response might be empty or malformed." };
         }
-        // Validate output dates are actually in the future or today if possible
-        // This basic validation can be enhanced
-        if (output.nextPeriod && new Date(output.nextPeriod.startDate) < new Date(input.currentDate)) {
-             // Check if the end date is also in the past, if so, it's an old prediction.
-            if (output.nextPeriod.endDate && new Date(output.nextPeriod.endDate) < new Date(input.currentDate)) {
-                 return { error: "AI predicted a past period. Consider logging more recent data or adjusting settings.", reasoning: output.reasoning };
+        const output = result.output;
+
+        // Basic validation for predicted period dates
+        if (output.nextPeriod && output.nextPeriod.startDate) {
+            try {
+                const nextPeriodStartDate = new Date(output.nextPeriod.startDate);
+                const currentDateObj = new Date(input.currentDate);
+                
+                if (nextPeriodStartDate < currentDateObj) {
+                    // If end date is also in the past, it's an old prediction.
+                    if (output.nextPeriod.endDate && new Date(output.nextPeriod.endDate) < currentDateObj) {
+                        return { 
+                            error: "AI predicted a period that has already passed. Consider logging more recent data or adjusting settings.", 
+                            reasoning: output.reasoning || "Prediction adjusted due to past date." 
+                        };
+                    }
+                    // If start date is past but end date is future, it's an ongoing predicted period, which might be acceptable depending on interpretation.
+                    // For now, we'll let it pass if end date is not also in the past.
+                }
+            } catch (dateError) {
+                // This catch is for invalid date strings from the AI, though Zod should catch this first.
+                console.error("Error parsing date from AI prediction:", dateError, output.nextPeriod);
+                return { error: "AI returned an invalid date format for the next period.", reasoning: output.reasoning };
             }
-            // If start date is past but end date is future, it's an ongoing predicted period, which is fine.
         }
         return output;
-    } catch (e) {
+    } catch (e: any) {
         console.error("Error in predictCycleFlow:", e);
-        return { error: "An unexpected error occurred while generating predictions." };
+        let errorMessage = "An unexpected error occurred while generating predictions.";
+        if (e instanceof Error && e.message) {
+            errorMessage += ` Details: ${e.message}`;
+        } else if (typeof e === 'string') {
+            errorMessage += ` Details: ${e}`;
+        }
+        
+        // Attempt to get more specific Genkit/Google AI error details
+        if (e && e.cause && e.cause.message) { // GoogleGenerativeAIError often has a cause
+          errorMessage += ` Cause: ${e.cause.message}`;
+        } else if (e && e.details) { 
+          errorMessage += ` Genkit details: ${e.details}`;
+        }
+        
+        if (e && typeof e.isFinishError === 'boolean' && e.finishReason) {
+          errorMessage += ` Finish Reason: ${e.finishReason}`;
+          if (e.safetyRatings) {
+            errorMessage += ` Safety Ratings: ${JSON.stringify(e.safetyRatings)}`;
+          }
+        }
+        return { error: errorMessage };
     }
   }
 );
