@@ -4,7 +4,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation"; // Added useSearchParams
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -25,6 +25,7 @@ import React from "react";
 
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams(); // Added
   const { signup, error: authError, setError: setAuthError, loading } = useAuth();
   const { toast } = useToast();
 
@@ -37,6 +38,8 @@ export default function SignupPage() {
     },
   });
 
+  const redirectTo = searchParams.get('redirect') || "/login"; // Redirect to login or specified page
+
   async function onSubmit(values: SignupFormData) {
     const user = await signup(values);
     if (user) {
@@ -44,7 +47,9 @@ export default function SignupPage() {
         title: "Signup Successful",
         description: "Welcome to CycleBloom! Please login.",
       });
-      router.push("/login"); // Redirect to login page after signup
+      // Pass along the redirect param to login if it exists
+      const loginRedirect = searchParams.get('redirect');
+      router.push(loginRedirect ? `/login?redirect=${encodeURIComponent(loginRedirect)}` : "/login");
     }
   }
 
@@ -114,7 +119,7 @@ export default function SignupPage() {
            <p className="text-sm text-muted-foreground">
             Already have an account?{" "}
             <Button variant="link" asChild className="p-0 h-auto">
-                <Link href="/login">Log in</Link>
+                <Link href={`/login${redirectTo && redirectTo !== '/login' ? `?redirect=${encodeURIComponent(searchParams.get('redirect')!)}` : ''}`}>Log in</Link>
             </Button>
           </p>
         </CardFooter>

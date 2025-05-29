@@ -15,11 +15,13 @@ import {
   onAuthStateChanged, 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
-  signOut 
+  signOut,
+  GoogleAuthProvider, // Added
+  signInWithPopup     // Added
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase'; // Assuming your firebase init is in lib/firebase
+import { auth } from '@/lib/firebase'; 
 import type { z } from 'zod';
-import type { loginSchema, signupSchema } from '@/lib/auth-schemas'; // We'll create these schemas
+import type { loginSchema, signupSchema } from '@/lib/auth-schemas';
 
 type AuthContextType = {
   currentUser: User | null;
@@ -28,6 +30,7 @@ type AuthContextType = {
   setError: Dispatch<SetStateAction<string | null>>;
   login: (values: z.infer<typeof loginSchema>) => Promise<User | null>;
   signup: (values: z.infer<typeof signupSchema>) => Promise<User | null>;
+  loginWithGoogle: () => Promise<User | null>; // Added
   logout: () => Promise<void>;
 };
 
@@ -55,7 +58,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setCurrentUser(user);
       setLoading(false);
     });
-    return unsubscribe; // Cleanup subscription on unmount
+    return unsubscribe; 
   }, []);
 
   const login = async (values: z.infer<typeof loginSchema>): Promise<User | null> => {
@@ -80,13 +83,32 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setError(null);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-      // You might want to update the user's profile here if needed, e.g., with a display name
       setCurrentUser(userCredential.user);
       return userCredential.user;
     } catch (err) {
       const authError = err as AuthError;
       console.error("Signup error:", authError);
       setError(authError.message || 'Failed to create account.');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loginWithGoogle = async (): Promise<User | null> => {
+    setLoading(true);
+    setError(null);
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      setCurrentUser(result.user);
+      return result.user;
+    } catch (err) {
+      const authError = err as AuthError;
+      console.error("Google login error:", authError);
+      // Handle specific Google auth errors if needed
+      // Example: authError.code === 'auth/popup-closed-by-user'
+      setError(authError.message || 'Failed to login with Google.');
       return null;
     } finally {
       setLoading(false);
@@ -115,6 +137,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setError,
     login,
     signup,
+    loginWithGoogle, // Added
     logout,
   };
 
