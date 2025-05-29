@@ -112,7 +112,7 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
           <CardContent className="pt-6 space-y-6">
             <div className="flex flex-col sm:flex-row gap-6 items-start">
               <Image
-                src={`https://placehold.co/300x300.png`}
+                src={`https://placehold.co/150x150.png`}
                 alt={recommendation.giftRecommendation || "AI Suggested Gift"}
                 width={150}
                 height={150}
