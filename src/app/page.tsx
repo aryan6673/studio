@@ -24,20 +24,20 @@ export default function DashboardPage() {
 
   const [periodLogs, setPeriodLogs] = useState<PeriodLog[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
-  const [isDataLoading, setIsDataLoading] = useState(true); // True initially for auth loading
+  const [isDataLoading, setIsDataLoading] = useState(true); 
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Log critical state changes for debugging
   useEffect(() => {
-    console.log(`DashboardPage State Change: authLoading: ${authLoading}, currentUser: ${!!currentUser}, isDataLoading: ${isDataLoading}, fetchError: ${fetchError}`);
+    console.log(`DashboardPage State Update: authLoading: ${authLoading}, currentUser: ${!!currentUser}, isDataLoading: ${isDataLoading}, fetchError: "${fetchError}"`);
   }, [authLoading, currentUser, isDataLoading, fetchError]);
 
   const fetchDashboardData = useCallback(async (userId: string) => {
     console.log(`DashboardPage: fetchDashboardData called for userId: ${userId}`);
     setIsDataLoading(true);
-    // Do NOT clear fetchError here; it's cleared by retry or auth state change.
+    // fetchError is NOT cleared here. It's cleared by retry, auth changes, or successful fetch.
 
-    let localError = null;
+    let friendlyErrorMessage: string | null = null;
 
     try {
       console.log("DashboardPage: Attempting to fetch period logs.");
@@ -61,7 +61,7 @@ export default function DashboardPage() {
           }
           if (!startDate || !isValid(startDate)) {
               console.error(`DashboardPage: Skipping log due to invalid/missing startDate. Doc ID: ${docSnap.id}, Data:`, data);
-              return; // Skip this log
+              return; 
           }
 
           let endDate: Date | undefined = undefined;
@@ -84,7 +84,7 @@ export default function DashboardPage() {
 
         } catch (parseError: any) {
             console.error(`DashboardPage: Error parsing date during log mapping for doc ${docSnap.id}:`, parseError.message, "Data:", data);
-            // Do not push this log or rethrow here, let the overall fetch handle it if it's critical
+            // This individual log parse error won't set the main fetchError unless we decide to.
         }
       });
       setPeriodLogs(fetchedLogsProcessing);
@@ -106,6 +106,7 @@ export default function DashboardPage() {
         console.log("DashboardPage: No user profile document found, using defaults.");
       }
       
+      console.log("DashboardPage: Data fetch successful. Clearing any previous fetchError.");
       setFetchError(null); // Clear error only if ALL fetches and processing were successful
 
     } catch (err: any) {
@@ -114,68 +115,79 @@ export default function DashboardPage() {
 
       if (err.name === 'FirebaseError') {
         if (err.code === 'permission-denied') {
-          localError = "Permission Denied: You don't have access to this data.";
-        } else if (err.code === 'unavailable') {
-          localError = "Network Issue: Could not connect to services. Please check your internet connection and try again.";
+          friendlyErrorMessage = "Permission Denied: You don't have access to this data.";
+        } else if (err.code === 'unavailable' || (typeof err.message === 'string' && (err.message.toLowerCase().includes('offline') || err.message.toLowerCase().includes('network request failed') || err.message.toLowerCase().includes('network error')))) {
+          friendlyErrorMessage = "You appear to be offline or there's a network issue. Please check your internet connection and try again.";
         } else {
-          localError = `Firebase Error (code: ${err.code}): ${err.message || 'An error occurred.'}`;
+          friendlyErrorMessage = `Firebase Error (code: ${err.code || 'unknown'}): ${err.message || 'An error occurred with Firebase.'}`;
         }
-      } else if (typeof err.message === 'string' && 
-                 (err.message.toLowerCase().includes('offline') || 
-                  err.message.toLowerCase().includes('network') ||
-                  err.message.toLowerCase().includes('failed to fetch'))) {
-        localError = "Network Issue: You appear to be offline or there's a network problem.";
+      } else if (typeof err.message === 'string' && (err.message.toLowerCase().includes('offline') || err.message.toLowerCase().includes('network'))) {
+        friendlyErrorMessage = "A network issue occurred. Please check your connection.";
       } else {
-        localError = `Error loading dashboard: ${err.message || 'An unknown error occurred.'}`;
+        friendlyErrorMessage = `Error loading dashboard: ${err.message || 'An unknown error occurred.'}`;
       }
-      console.log("DashboardPage: Setting fetchError state to:", localError);
-      setFetchError(localError);
+      console.log("DashboardPage: Setting fetchError state to:", friendlyErrorMessage);
+      setFetchError(friendlyErrorMessage);
+      setPeriodLogs([]); // Clear data on error
+      setUserProfile(null); // Clear data on error
     } finally {
       console.log("DashboardPage: fetchDashboardData finally block. Setting isDataLoading to false.");
       setIsDataLoading(false);
     }
-  }, []); // No dependencies as userId is passed as argument, setters are stable
+  }, []); // useCallback dependencies: stable setters, db. userId is an argument.
 
+  // Main effect for data fetching logic
   useEffect(() => {
+    console.log(`DashboardPage Effect Trigger: authLoading: ${authLoading}, currentUser: ${!!currentUser?.uid}, isDataLoading: ${isDataLoading}, fetchError: "${fetchError}"`);
+
     if (authLoading) {
-      setIsDataLoading(true);
-      setFetchError(null); // Clear errors while auth is resolving
-      return;
+        console.log("DashboardPage: Auth is loading. Setting isDataLoading to true, clearing fetchError.");
+        setIsDataLoading(true);
+        setFetchError(null); 
+        setPeriodLogs([]);   
+        setUserProfile(null); 
+        return;
     }
 
     if (currentUser && currentUser.uid) {
-      // Only fetch data if there's no existing error OR if data hasn't been loaded yet.
-      // This prevents re-fetching automatically if an error state already exists (user must click "Try Again").
-      const noDataLoadedYet = periodLogs.length === 0 && userProfile === null;
-      if (!fetchError || noDataLoadedYet) {
-        console.log("DashboardPage: User authenticated. No existing error or no data loaded yet. Fetching data...");
+        if (fetchError) {
+            console.log("DashboardPage: Auth complete, user exists, but fetchError is present. Doing nothing further in this effect. Error:", fetchError);
+            setIsDataLoading(false); 
+            return; 
+        }
+
+        // If not currently loading and data is already present, don't re-fetch.
+        const dataIsPresent = periodLogs.length > 0 || userProfile !== null;
+        if (dataIsPresent && !isDataLoading) {
+             console.log("DashboardPage: Auth complete, user exists, data already present, no error, not currently loading. Doing nothing.");
+             return;
+        }
+        
+        // If we are here, it means: auth is complete, user is logged in, no pre-existing fetchError.
+        // Fetch data if it's not present or if we were in an initial loading state.
+        console.log("DashboardPage: Conditions met for fetching data. Calling fetchDashboardData.");
         fetchDashboardData(currentUser.uid);
-      } else if (fetchError) {
-        console.log("DashboardPage: User authenticated, but fetchError exists. Not re-fetching. Error:", fetchError);
-        setIsDataLoading(false); // Ensure loading is off if an error is present
-      } else {
-         console.log("DashboardPage: User authenticated, data already present, no error. Not re-fetching.");
-         setIsDataLoading(false); // Data present, not loading.
-      }
-    } else { // No currentUser and not authLoading (i.e., logged out)
-      console.log("DashboardPage: No user logged in. Clearing data.");
-      setPeriodLogs([]);
-      setUserProfile(null);
-      setFetchError(null);
-      setIsDataLoading(false);
+    } else {
+        // No currentUser and auth is not loading (i.e., user is logged out or session ended)
+        console.log("DashboardPage: No user or auth not loading. Clearing data and fetchError.");
+        setPeriodLogs([]);
+        setUserProfile(null);
+        setFetchError(null); 
+        setIsDataLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.uid, authLoading]); // fetchDashboardData is memoized so it's stable
+  }, [currentUser?.uid, authLoading]); // Dependencies: only re-run if user or auth state changes.
+                                     // fetchDashboardData is stable. isDataLoading & fetchError are handled internally or by retry.
 
   const handleRetry = () => {
     console.log("DashboardPage: Retry button clicked.");
     if (currentUser && currentUser.uid) {
-      setFetchError(null); // Clear the error before retrying
-      // isDataLoading will be set to true at the start of fetchDashboardData
+      setFetchError(null); // Clear the error
+      setIsDataLoading(true); // Set loading true BEFORE calling fetch
       fetchDashboardData(currentUser.uid);
     } else {
-      // This case should ideally be rare if the button is only shown when an error occurred for a logged-in user attempt.
       setFetchError("Please log in again to load your dashboard."); 
+      setIsDataLoading(false);
     }
   };
 
@@ -197,7 +209,6 @@ export default function DashboardPage() {
     );
   }
   
-  // Display error if one exists. This takes precedence after auth loading.
   if (fetchError) { 
     console.log("DashboardPage: RENDERING - Error State Card. Message:", fetchError);
     return (
@@ -218,7 +229,7 @@ export default function DashboardPage() {
     );
   }
   
-  if (!currentUser) { // No error, but no user means prompt login
+  if (!currentUser) { 
     console.log("DashboardPage: RENDERING - Not Logged In State.");
     return (
       <Card className="max-w-md mx-auto mt-10 text-center">
@@ -229,8 +240,9 @@ export default function DashboardPage() {
   }
 
   // User exists, no error yet, but data is still loading (e.g., first load for this user)
-  if (isDataLoading) { 
-    console.log("DashboardPage: RENDERING - Data Loading Skeleton (User exists, no error yet).");
+  // OR initial state before first successful fetch and before any error.
+  if (isDataLoading || (periodLogs.length === 0 && userProfile === null && !fetchError)) { 
+    console.log("DashboardPage: RENDERING - Data Loading Skeleton (User exists, no error yet, or initial blank state). isDataLoading:", isDataLoading);
      return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -284,5 +296,4 @@ export default function DashboardPage() {
     </div>
   );
 }
-
     
