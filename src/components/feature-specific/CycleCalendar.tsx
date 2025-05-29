@@ -3,7 +3,7 @@
 "use client";
 
 import * as React from "react";
-import { addDays, format, startOfDay, parseISO } from "date-fns";
+import { addDays, format, startOfDay, parseISO, isValid } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import type { PeriodLog } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -101,6 +101,9 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
         try {
           const periodStart = startOfDay(parseISO(period.startDate));
           const periodEnd = startOfDay(parseISO(period.endDate));
+          if (!isValid(periodStart) || !isValid(periodEnd)) {
+            console.warn('Invalid period date string from AI:', period); return;
+          }
           if (format(periodStart, "yyyy-MM-dd") >= todayFormatted || format(periodEnd, "yyyy-MM-dd") >= todayFormatted) {
             for (let d = new Date(periodStart); d <= periodEnd; d = addDays(d, 1)) {
               const dateStr = format(d, "yyyy-MM-dd");
@@ -117,6 +120,9 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
          try {
           const fertileStart = startOfDay(parseISO(window.startDate));
           const fertileEnd = startOfDay(parseISO(window.endDate));
+          if (!isValid(fertileStart) || !isValid(fertileEnd)) {
+            console.warn('Invalid fertile window date string from AI:', window); return;
+          }
            if (format(fertileStart, "yyyy-MM-dd") >= todayFormatted || format(fertileEnd, "yyyy-MM-dd") >= todayFormatted) {
             for (let d = new Date(fertileStart); d <= fertileEnd; d = addDays(d, 1)) {
               const dateStr = format(d, "yyyy-MM-dd");
@@ -132,7 +138,16 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
       // Predicted Ovulation Dates
       aiPrediction.predictedOvulationDates?.forEach(ovDateStr => {
         try {
+          if (typeof ovDateStr !== 'string' || ovDateStr.trim() === '') {
+            console.warn('Received empty or invalid ovulation date string from AI:', ovDateStr);
+            return; 
+          }
           const ovulationDate = startOfDay(parseISO(ovDateStr));
+          if (!isValid(ovulationDate)) {
+            console.warn(`Failed to parse ovulation date string from AI: '${ovDateStr}' resulted in an invalid date.`);
+            return; 
+          }
+
           if (format(ovulationDate, "yyyy-MM-dd") >= todayFormatted) {
             const dateStr = format(ovulationDate, "yyyy-MM-dd");
             const existingInfo = newDayInfoMap.get(dateStr) || { date: ovulationDate };
@@ -140,7 +155,9 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
               newDayInfoMap.set(dateStr, { ...existingInfo, isOvulation: true, isFertile: true }); 
             }
           }
-        } catch (e) { console.error("Error parsing predicted ovulation date:", e, ovDateStr); }
+        } catch (e: any) { 
+          console.error(`Error processing predicted ovulation date string '${ovDateStr}':`, e?.message, e?.stack); 
+        }
       });
     }
     setDayInfoMap(newDayInfoMap);
