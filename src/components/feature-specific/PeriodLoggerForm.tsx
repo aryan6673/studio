@@ -14,7 +14,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -23,14 +22,16 @@ import { format } from "date-fns";
 import { availableSymptoms, type SymptomOption } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import React from "react";
+import React, { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 const periodLogSchema = z.object({
   startDate: z.date({
     required_error: "Start date is required.",
   }),
   endDate: z.date().optional(),
-  cycleLength: z.coerce.number().int().positive().optional().nullable(),
   symptoms: z.array(z.string()).optional(),
 });
 
@@ -38,28 +39,62 @@ type PeriodLogFormData = z.infer<typeof periodLogSchema>;
 
 export function PeriodLoggerForm() {
   const { toast } = useToast();
+  const { currentUser } = useAuth();
   const [selectedSymptoms, setSelectedSymptoms] = React.useState<SymptomOption[]>([]);
-
+  const [isSaving, setIsSaving] = useState(false);
 
   const form = useForm<PeriodLogFormData>({
     resolver: zodResolver(periodLogSchema),
     defaultValues: {
       symptoms: [],
-      cycleLength: null, 
     },
   });
 
-  function onSubmit(data: PeriodLogFormData) {
-    console.log("Period Log Data:", data);
-    let description = `Start Date: ${format(data.startDate, "PPP")}.`;
-    description += ` Symptoms: ${data.symptoms?.join(', ') || 'None'}.`;
-    
-    toast({
-      title: "Period Logged",
-      description: description,
-    });
-    form.reset();
-    setSelectedSymptoms([]);
+  async function onSubmit(data: PeriodLogFormData) {
+    if (!currentUser) {
+      toast({ title: "Error", description: "You must be logged in to save a log.", variant: "destructive" });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const logDataToSave = {
+        userId: currentUser.uid, // Store userId for potential broader queries if needed, though subcollection already scopes it
+        startDate: format(data.startDate, "yyyy-MM-dd"),
+        endDate: data.endDate ? format(data.endDate, "yyyy-MM-dd") : null,
+        symptoms: data.symptoms || [],
+        loggedAt: serverTimestamp(),
+      };
+      
+      const userPeriodLogsCollectionRef = collection(db, "users", currentUser.uid, "periodLogs");
+      await addDoc(userPeriodLogsCollectionRef, logDataToSave);
+
+      toast({
+        title: "Period Logged",
+        description: "Your period data has been saved successfully.",
+      });
+      form.reset({ startDate: undefined, endDate: undefined, symptoms: [] }); // Explicitly reset dates
+      setSelectedSymptoms([]);
+    } catch (error) {
+      console.error("Error saving period log:", error);
+      toast({
+        title: "Save Failed",
+        description: "Could not save your period log. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  if (!currentUser && !isSaving) { // Also check !isSaving to avoid flicker during submission if user logs out mid-process
+    return (
+      <div className="text-center p-4 border rounded-md bg-muted">
+        <p className="text-muted-foreground">Please log in to record your period data.</p>
+        <Button variant="link" asChild className="mt-2">
+          <a href="/login">Go to Login</a>
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -223,33 +258,9 @@ export function PeriodLoggerForm() {
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="cycleLength"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Typical Cycle Length (Days, Optional)</FormLabel>
-              <FormControl>
-                <Input
-                  type="number"
-                  placeholder="e.g., 28"
-                  {...field}
-                  value={field.value ?? ""} 
-                  onChange={event => {
-                    const value = event.target.value;
-                    field.onChange(value === "" ? null : Number(value)); 
-                  }}
-                />
-              </FormControl>
-              <FormDescription>
-                Your average cycle length in days. Helps with predictions.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <Button type="submit" className="w-full">Save Log</Button>
+        <Button type="submit" className="w-full" disabled={isSaving || !currentUser}>
+          {isSaving ? "Saving..." : "Save Log"}
+        </Button>
       </form>
     </Form>
   );
