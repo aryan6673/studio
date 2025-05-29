@@ -43,7 +43,6 @@ export default function DashboardPage() {
       const logsSnapshot = await getDocs(q);
       const fetchedLogs = logsSnapshot.docs.map(doc => {
         const data = doc.data();
-        // Ensure dates are parsed correctly from "YYYY-MM-DD" strings
         const startDateString = data.startDate;
         const endDateString = data.endDate;
 
@@ -52,9 +51,9 @@ export default function DashboardPage() {
             startDate = parseISO(startDateString);
             if (!isValid(startDate)) {
                  console.warn("Invalid startDate found in Firestore log:", doc.id, data.startDate);
-                 startDate = null; // or handle as error
+                 startDate = null; 
             }
-        } else if (data.startDate?.toDate && typeof data.startDate.toDate === 'function') { // Handle Firebase Timestamp
+        } else if (data.startDate?.toDate && typeof data.startDate.toDate === 'function') { 
             startDate = data.startDate.toDate();
              if (!isValid(startDate)) {
                  console.warn("Invalid Firebase Timestamp for startDate:", doc.id, data.startDate);
@@ -70,7 +69,7 @@ export default function DashboardPage() {
                 console.warn("Invalid endDate found in Firestore log:", doc.id, data.endDate);
                 endDate = undefined; 
             }
-        } else if (data.endDate?.toDate && typeof data.endDate.toDate === 'function') { // Handle Firebase Timestamp
+        } else if (data.endDate?.toDate && typeof data.endDate.toDate === 'function') { 
              endDate = data.endDate.toDate();
              if (!isValid(endDate)) {
                  console.warn("Invalid Firebase Timestamp for endDate:", doc.id, data.endDate);
@@ -78,7 +77,7 @@ export default function DashboardPage() {
             }
         }
         
-        if (!startDate) { // If startDate is still null after checks
+        if (!startDate) { 
             return null; 
         }
 
@@ -88,7 +87,7 @@ export default function DashboardPage() {
           endDate: endDate,
           symptoms: data.symptoms || [],
         } as PeriodLog;
-      }).filter(log => log !== null && log.startDate !== null) as PeriodLog[]; // Ensure startDate is not null
+      }).filter(log => log !== null && log.startDate !== null) as PeriodLog[]; 
       
       setPeriodLogs(fetchedLogs);
 
@@ -102,18 +101,28 @@ export default function DashboardPage() {
           averagePeriodDuration: profileData.averagePeriodDuration === undefined ? null : profileData.averagePeriodDuration,
         });
       } else {
-        setUserProfile({ averageCycleLength: null, averagePeriodDuration: null }); // Default if no profile
+        setUserProfile({ averageCycleLength: null, averagePeriodDuration: null }); 
       }
 
     } catch (err: any) {
-      console.error("Error fetching dashboard data:", err);
-      if (err.code === 'unavailable' || (err.message && typeof err.message === 'string' && err.message.toLowerCase().includes('offline'))) {
-        setError("You appear to be offline. Please check your internet connection to load dashboard data.");
-      } else if (err.code === 'permission-denied') {
+      console.error("Error fetching dashboard data:", err); // This log is helpful for you to see the raw error.
+      
+      const message = err.message ? String(err.message).toLowerCase() : "";
+      const code = err.code;
+
+      if (code === 'unavailable' || 
+          message.includes('client is offline') || 
+          message.includes('network request failed') || 
+          message.includes('failed to fetch') ||
+          message.includes('internet connection')) {
+        setError("You appear to be offline or there's a network issue. Please check your internet connection and try again.");
+      } else if (code === 'permission-denied') {
         setError("You do not have permission to access this data. Please ensure you are logged in with the correct account or contact support if this persists.");
       } else {
-        setError(`Could not load dashboard data. Error: ${err.message || 'Unknown error'}`);
+        // Fallback to a message that includes the actual error, if available.
+        setError(`Could not load dashboard data. Error: ${err.message || String(err) || 'Unknown error'}`);
       }
+      
       setPeriodLogs([]);
       setUserProfile(null);
     } finally {
@@ -190,7 +199,6 @@ export default function DashboardPage() {
     );
   }
   
-  // Ensure periodLogs are valid before passing to CycleCalendar
   const validPeriodLogs = periodLogs.filter(log => log && log.startDate && isValid(log.startDate));
 
   return (
