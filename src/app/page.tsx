@@ -11,7 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { PeriodLog } from "@/lib/types";
 import { db } from "@/lib/firebase";
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, Timestamp } from "firebase/firestore";
-import { parseISO, isValid, format } from 'date-fns';
+import { parseISO, isValid } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface UserProfileData {
@@ -21,41 +21,37 @@ interface UserProfileData {
 
 export default function DashboardPage() {
   const { currentUser, loading: authLoading } = useAuth();
+
   const [periodLogs, setPeriodLogs] = useState<PeriodLog[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
-  const [dataLoading, setDataLoading] = useState(true); 
-  const [error, setError] = useState<string | null>(null);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const fetchDashboardData = useCallback(async () => {
-    if (!currentUser?.uid) {
-      console.log("DashboardPage: fetchDashboardData called without currentUser.uid, bailing.");
-      setDataLoading(false);
-      setPeriodLogs([]);
-      setUserProfile(null);
-      setError(null); // Clear errors if no user
-      return;
-    }
+  console.log(`DashboardPage: Initial render. AuthLoading: ${authLoading}, CurrentUser: ${!!currentUser}`);
 
-    console.log("DashboardPage: Starting fetchDashboardData for user:", currentUser.uid);
-    setDataLoading(true);
-    setError(null); 
+  const fetchDashboardData = useCallback(async (userId: string) => {
+    console.log(`DashboardPage: fetchDashboardData called for userId: ${userId}`);
+    setIsDataLoading(true);
+    setFetchError(null);
+    // Reset data states before fetching to avoid showing stale data during load
+    setPeriodLogs([]);
+    setUserProfile(null);
 
     try {
-      const logsCollectionRef = collection(db, "users", currentUser.uid, "periodLogs");
-      const q = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24)); // Fetch more logs for AI
-      const logsSnapshot = await getDocs(q);
-      const fetchedLogs = logsSnapshot.docs.map(docSnap => {
+      console.log("DashboardPage: Attempting to fetch period logs.");
+      const logsCollectionRef = collection(db, "users", userId, "periodLogs");
+      const logsQuery = query(logsCollectionRef, orderBy("startDate", "desc"), limit(24));
+      const logsSnapshot = await getDocs(logsQuery);
+      const fetchedLogs: PeriodLog[] = logsSnapshot.docs.map(docSnap => {
         const data = docSnap.data();
         let startDate: Date | null = null;
         if (data.startDate) {
-          // Firestore might store dates as Timestamps or strings depending on how they were saved
           if (data.startDate instanceof Timestamp) startDate = data.startDate.toDate();
           else if (typeof data.startDate === 'string') startDate = parseISO(data.startDate);
         }
-        // Validate the parsed date
         if (startDate && !isValid(startDate)) {
-          console.warn("Invalid startDate from Firestore:", docSnap.id, data.startDate);
-          startDate = null; // Treat as invalid
+            console.warn("DashboardPage: Invalid startDate from Firestore:", docSnap.id, data.startDate);
+            startDate = null;
         }
 
         let endDate: Date | undefined = undefined;
@@ -64,110 +60,125 @@ export default function DashboardPage() {
           else if (typeof data.endDate === 'string') endDate = parseISO(data.endDate);
         }
         if (endDate && !isValid(endDate)) {
-          console.warn("Invalid endDate from Firestore:", docSnap.id, data.endDate);
-          endDate = undefined;
+            console.warn("DashboardPage: Invalid endDate from Firestore:", docSnap.id, data.endDate);
+            endDate = undefined;
         }
         
-        if (!startDate) return null; // Skip logs with invalid start dates
+        if (!startDate) return null; 
         return {
           id: docSnap.id,
           startDate: startDate,
           endDate: endDate,
           symptoms: data.symptoms || [],
         } as PeriodLog;
-      }).filter(log => log !== null) as PeriodLog[]; // Filter out any nulls from invalid dates
+      }).filter(log => log !== null) as PeriodLog[];
+      
       setPeriodLogs(fetchedLogs);
-      console.log("DashboardPage: Fetched period logs:", fetchedLogs.length);
+      console.log(`DashboardPage: Fetched ${fetchedLogs.length} period logs.`);
 
-      const profileDocRef = doc(db, "users", currentUser.uid);
+      console.log("DashboardPage: Attempting to fetch user profile.");
+      const profileDocRef = doc(db, "users", userId);
       const profileSnap = await getDoc(profileDocRef);
+
       if (profileSnap.exists()) {
         const profileData = profileSnap.data();
         setUserProfile({
           averageCycleLength: profileData.averageCycleLength === undefined ? null : profileData.averageCycleLength,
           averagePeriodDuration: profileData.averagePeriodDuration === undefined ? null : profileData.averagePeriodDuration,
         });
-        console.log("DashboardPage: Fetched user profile data.");
+        console.log("DashboardPage: User profile data fetched:", userProfile);
       } else {
-        // No profile document exists, use defaults (nulls)
         setUserProfile({ averageCycleLength: null, averagePeriodDuration: null });
-        console.log("DashboardPage: No user profile found, using defaults.");
+        console.log("DashboardPage: No user profile document found, using defaults.");
       }
       console.log("DashboardPage: fetchDashboardData completed successfully.");
 
     } catch (err: any) {
-      console.error("DashboardPage: Raw error object in fetchDashboardData:", err);
-      console.error("DashboardPage: Error name:", err.name);
-      console.error("DashboardPage: Error message:", err.message);
-      console.error("DashboardPage: Error code:", err.code);
+      console.error("DashboardPage: --- RAW ERROR OBJECT IN fetchDashboardData ---", err);
+      console.error("DashboardPage: Error Name:", err.name);
+      console.error("DashboardPage: Error Message:", err.message);
+      console.error("DashboardPage: Error Code:", err.code);
+      // console.error("DashboardPage: Error Stack:", err.stack); // Can be very verbose
 
       let friendlyErrorMessage = "Failed to load dashboard data. An unexpected error occurred.";
       const errorMessageLower = String(err.message || '').toLowerCase();
       const errStringLower = String(err).toLowerCase(); // Check the whole error object as string
 
-      // More robust check for offline/network errors
       if (err.code === 'unavailable' || 
           errorMessageLower.includes('offline') || 
           errorMessageLower.includes('network request failed') ||
           errorMessageLower.includes('failed to fetch') ||
           errorMessageLower.includes('internet connection') ||
-          errStringLower.includes('client is offline')) { // Added check for the specific string
+          errStringLower.includes('client is offline')) {
         friendlyErrorMessage = "You appear to be offline or there's a network issue. Please check your internet connection and try again.";
       } else if (err.code === 'permission-denied') {
         friendlyErrorMessage = "You do not have permission to access this data. Please ensure you are logged in with the correct account or contact support if this persists.";
       } else if (err.message) {
-        // Use the Firebase error message if it's not one of the handled cases above
         friendlyErrorMessage = `Could not load dashboard data. Error: ${err.message}`;
       }
       
-      console.log("DashboardPage: Setting error state to:", friendlyErrorMessage);
-      setError(friendlyErrorMessage);
-      setPeriodLogs([]); // Clear data on error
-      setUserProfile(null); // Clear profile on error
+      console.log("DashboardPage: Setting fetchError to:", friendlyErrorMessage);
+      setFetchError(friendlyErrorMessage);
+      setPeriodLogs([]); 
+      setUserProfile(null);
     } finally {
-      console.log("DashboardPage: Setting dataLoading to false in finally block.");
-      setDataLoading(false);
+      console.log("DashboardPage: Setting isDataLoading to false in fetchDashboardData finally block.");
+      setIsDataLoading(false);
     }
-  }, [currentUser?.uid]); // Depend only on currentUser.uid for stability
+  }, []); // db, collection, query, orderBy, limit, getDocs, doc, getDoc, Timestamp, parseISO, isValid are stable imports
 
   useEffect(() => {
-    console.log("DashboardPage: Auth or loading state changed. AuthLoading:", authLoading, "CurrentUser:", !!currentUser);
+    console.log("DashboardPage: useEffect for auth/user changes triggered. AuthLoading:", authLoading, "CurrentUser:", !!currentUser?.uid);
     if (authLoading) {
-      console.log("DashboardPage: Auth is loading, setting dataLoading to true and clearing error.");
-      setDataLoading(true); // Ensure dataLoading is true while auth is loading
-      setError(null); // Clear previous errors while auth is loading
-    } else if (currentUser) {
-      console.log("DashboardPage: Auth loaded and user exists, calling fetchDashboardData.");
-      fetchDashboardData().catch(e => {
-        // This catch is an additional safeguard. Errors should ideally be handled within fetchDashboardData.
-        console.error("DashboardPage: Uncaught error from fetchDashboardData promise in useEffect:", e);
-        setError("An unexpected error occurred while trying to load dashboard data. Please try refreshing.");
-        setDataLoading(false);
-      });
-    } else { // No currentUser and not authLoading (e.g., logged out)
-      console.log("DashboardPage: Auth loaded and no user, clearing data and error states.");
+      console.log("DashboardPage: Auth is loading. Setting isDataLoading=true, clearing fetchError, logs, and profile.");
+      setIsDataLoading(true); // Show loading skeleton while auth resolves
+      setFetchError(null);
       setPeriodLogs([]);
       setUserProfile(null);
-      setError(null);
-      setDataLoading(false); // No data to load if not logged in
+    } else if (currentUser && currentUser.uid) {
+      console.log("DashboardPage: User is authenticated. Calling fetchDashboardData.");
+      fetchDashboardData(currentUser.uid).catch(e => {
+          console.error("DashboardPage: Critical error calling fetchDashboardData from useEffect:", e);
+          setFetchError("A critical error occurred while initiating data load.");
+          setIsDataLoading(false);
+      });
+    } else if (!currentUser && !authLoading) {
+      // No user, and auth is done loading (i.e., user is logged out or never logged in)
+      console.log("DashboardPage: No user and not authLoading. Clearing data/error, setting isDataLoading=false.");
+      setIsDataLoading(false);
+      setFetchError(null);
+      setPeriodLogs([]);
+      setUserProfile(null);
     }
-  }, [currentUser, authLoading, fetchDashboardData]);
+  }, [currentUser?.uid, authLoading, fetchDashboardData]); // Re-run if user.uid changes or authLoading status changes
 
-  // Log changes to error and dataLoading states for debugging
   useEffect(() => {
-    console.log("DashboardPage: Error state is now:", error);
-  }, [error]);
-  
+    console.log("DashboardPage: fetchError state changed to:", fetchError);
+  }, [fetchError]);
+
   useEffect(() => {
-    console.log("DashboardPage: dataLoading state is now:", dataLoading);
-  }, [dataLoading]);
+    console.log("DashboardPage: isDataLoading state changed to:", isDataLoading);
+  }, [isDataLoading]);
 
 
-  // -------- Rendering Logic --------
+  const handleRetry = () => {
+    console.log("DashboardPage: Retry button clicked.");
+    if (currentUser && currentUser.uid) {
+      // Reset error and trigger fetch
+      setFetchError(null);
+      setIsDataLoading(true); // Manually set loading true before fetch
+      fetchDashboardData(currentUser.uid);
+    } else {
+      console.warn("DashboardPage: Retry clicked, but no current user. This scenario should ideally be handled by redirecting to login if auth fails.");
+      setFetchError("Please log in to load your dashboard.");
+    }
+  };
 
+  // ----- RENDER LOGIC -----
+
+  // 1. Auth Loading State (Highest priority)
   if (authLoading) {
-    console.log("DashboardPage: Rendering Auth Loading Skeleton.");
-    // setError should be null here due to useEffect logic above setting it null when authLoading is true.
+    console.log("DashboardPage: RENDERING - Auth Loading Skeleton.");
     return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -182,19 +193,10 @@ export default function DashboardPage() {
     );
   }
 
-  if (!currentUser) { // authLoading is false here
-    console.log("DashboardPage: Rendering Not Logged In State.");
-    return (
-      <Card className="max-w-md mx-auto mt-10 text-center">
-        <CardHeader><CardTitle>Welcome to CycleBloom!</CardTitle><CardDescription>Please log in to view your dashboard and track your cycle.</CardDescription></CardHeader>
-        <CardContent><Button asChild><Link href="/login"><LogIn className="mr-2 h-5 w-5" />Log In</Link></Button></CardContent>
-      </Card>
-    );
-  }
-  
-  // currentUser exists, authLoading is false. Now check for errors from data fetching.
-  if (error) {
-    console.log("DashboardPage: Rendering Error State Card. CurrentUser:", !!currentUser, "Error Message:", error);
+  // 2. Error State (If an error occurred during data fetching for an authenticated user)
+  // This should show *even if* currentUser exists, if fetchError is set.
+  if (fetchError && currentUser) { // Only show this specific error UI if there was a user context for the fetch
+    console.log("DashboardPage: RENDERING - Error State Card. Message:", fetchError);
     return (
         <Card className="max-w-lg mx-auto mt-10 text-center">
             <CardHeader>
@@ -204,21 +206,29 @@ export default function DashboardPage() {
                 <CardTitle className="mt-4 text-destructive">Error Loading Dashboard</CardTitle>
             </CardHeader>
             <CardContent>
-                <p className="text-muted-foreground mb-6">{error}</p>
-                <Button onClick={() => {
-                  console.log("DashboardPage: Try Again button clicked.");
-                  fetchDashboardData().catch(e => { /* Already handled */ });
-                }} disabled={dataLoading}>
-                  {dataLoading ? "Retrying..." : "Try Again"}
+                <p className="text-muted-foreground mb-6">{fetchError}</p>
+                <Button onClick={handleRetry} disabled={isDataLoading}>
+                  {isDataLoading ? "Retrying..." : "Try Again"}
                 </Button>
             </CardContent>
         </Card>
     );
   }
+  
+  // 3. No Current User State (After auth has loaded and if no error from a previous fetch attempt with a user)
+  if (!currentUser) {
+    console.log("DashboardPage: RENDERING - Not Logged In State.");
+    return (
+      <Card className="max-w-md mx-auto mt-10 text-center">
+        <CardHeader><CardTitle>Welcome to CycleBloom!</CardTitle><CardDescription>Please log in to view your dashboard and track your cycle.</CardDescription></CardHeader>
+        <CardContent><Button asChild><Link href="/login"><LogIn className="mr-2 h-5 w-5" />Log In</Link></Button></CardContent>
+      </Card>
+    );
+  }
 
-  // currentUser exists, authLoading is false, no error. Check dataLoading for Firestore.
-  if (dataLoading) { // This means fetchDashboardData is in progress (or hasn't successfully completed)
-    console.log("DashboardPage: Rendering Data Loading Skeleton (currentUser exists, no error yet).");
+  // 4. Data Loading State (User is logged in, no error yet, data is fetching)
+  if (isDataLoading) { // currentUser must exist here
+    console.log("DashboardPage: RENDERING - Data Loading Skeleton (User exists, no error yet).");
      return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -233,13 +243,11 @@ export default function DashboardPage() {
     );
   }
   
-  // currentUser exists, authLoading is false, no error, dataLoading is false. Data *should* be loaded.
-  // The UserProfile can be null if not yet created by the user, this is a valid state.
-  if (userProfile !== null) { // Check userProfile is not null (it can be empty object {} if no data but doc exists, or actual data)
-    console.log("DashboardPage: Rendering Data Loaded State. Logs:", periodLogs.length, "Profile:", userProfile);
-    // Filter logs one last time to be absolutely sure, though fetchDashboardData should handle this
+  // 5. Success State (User logged in, no error, data finished loading)
+  // userProfile *should* be non-null here if isDataLoading is false and no fetchError
+  if (userProfile) { 
+    console.log("DashboardPage: RENDERING - Data Loaded State. Logs:", periodLogs.length, "Profile:", userProfile);
     const validPeriodLogs = periodLogs.filter(log => log && log.startDate && isValid(log.startDate));
-
     return (
       <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -250,8 +258,8 @@ export default function DashboardPage() {
           <CardContent>
             <CycleCalendar 
               logs={validPeriodLogs} 
-              cycleLength={userProfile?.averageCycleLength ?? undefined} // Pass undefined if null
-              averagePeriodDuration={userProfile?.averagePeriodDuration ?? undefined} // Pass undefined if null
+              cycleLength={userProfile?.averageCycleLength ?? undefined}
+              averagePeriodDuration={userProfile?.averagePeriodDuration ?? undefined}
             />
           </CardContent>
         </Card>
@@ -275,28 +283,27 @@ export default function DashboardPage() {
     );
   }
 
-  // Fallback rendering - this should ideally not be reached if logic above is correct.
-  // It might be hit briefly if userProfile is null but dataLoading is false, which can happen if the profile doc doesn't exist.
-  console.warn("DashboardPage: Reached fallback rendering state. This might be okay if profile doesn't exist yet. State:", { authLoading, currentUser: !!currentUser, error, dataLoading, userProfileExists: !!userProfile });
+  // 6. Fallback / Initial Profile Setup Prompt (User is logged in, data loading done, no error, but profile might be new)
+  // This state implies currentUser exists, isDataLoading is false, fetchError is null, but userProfile might still be null
+  // (e.g., after a fresh signup where profile document hasn't been created via profile page yet).
+  console.warn("DashboardPage: RENDERING - Fallback or Initial Setup State. User:", currentUser?.uid, "isDataLoading:", isDataLoading, "fetchError:", fetchError, "userProfile:", userProfile);
   return (
-    <div className="text-center py-10">
-        <p>Loading dashboard or an unexpected state occurred. Please try refreshing the page.</p>
-        {error && <p className="text-destructive mt-2">{error}</p>}
-        {!dataLoading && !userProfile && !error && currentUser && (
-          <Card className="max-w-md mx-auto mt-4">
-            <CardHeader><CardTitle>Welcome!</CardTitle></CardHeader>
-            <CardContent>
-              <p className="mb-4 text-muted-foreground">It looks like your dashboard is ready. You can start by logging your period or setting up your profile.</p>
-              <div className="flex gap-2 justify-center">
-                <Button asChild><Link href="/log-period">Log Period</Link></Button>
-                <Button asChild variant="outline"><Link href="/profile">Set Profile</Link></Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-    </div>
+    <Card className="max-w-md mx-auto mt-10 text-center">
+      <CardHeader><CardTitle>Welcome to CycleBloom!</CardTitle></CardHeader>
+      <CardContent>
+        <p className="mb-4 text-muted-foreground">
+          Your dashboard is ready! Start by logging your period or setting up your cycle preferences in your profile.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2 justify-center">
+          <Button asChild><Link href="/log-period">Log Your First Period</Link></Button>
+          <Button asChild variant="outline"><Link href="/profile">Set Up Profile</Link></Button>
+        </div>
+        {fetchError && <p className="text-destructive text-sm mt-4">{fetchError}</p>} 
+        <Button onClick={handleRetry} className="mt-4" variant="ghost" disabled={isDataLoading}>
+            {isDataLoading ? "Loading..." : "Refresh Dashboard"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
-    
-
     
