@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Gift, Send, RefreshCw } from "lucide-react";
-import Image from "next/image";
 import React, { useState, useEffect, useCallback } from "react";
 
 interface GiftRecommendationDisplayProps {
@@ -19,7 +18,6 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
   const [recommendation, setRecommendation] = useState<RecommendGiftsOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
-  const [imageHint, setImageHint] = useState("comfort gift");
 
   const fetchRecommendation = useCallback(async () => {
     setIsLoading(true);
@@ -31,11 +29,6 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
       };
       const result = await recommendGifts(input);
       setRecommendation(result);
-      if (result?.giftRecommendation) {
-        // Basic keyword extraction for image hint (max 2 words)
-        const keywords = result.giftRecommendation.toLowerCase().split(" ").slice(0, 2).join(" ");
-        setImageHint(keywords || "comfort gift");
-      }
     } catch (error) {
       console.error("Failed to get gift recommendation:", error);
       let errorMessage = "Could not fetch gift recommendation. Please try again.";
@@ -43,7 +36,6 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
         if (error.message.includes("503 Service Unavailable") || error.message.toLowerCase().includes("model is overloaded")) {
           errorMessage = "The AI model is currently overloaded. Please try again in a few moments.";
         } else {
-          // Keep it concise for other errors, but log the full one.
           errorMessage = "An AI error occurred. Please try again."; 
         }
       }
@@ -83,13 +75,10 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
             <Skeleton className="h-4 w-1/2" />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-4">
-              <Skeleton className="h-32 w-32 rounded-md sm:h-40 sm:w-40" />
-              <div className="space-y-2 flex-1">
-                <Skeleton className="h-5 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
+            <div className="space-y-2 flex-1">
+              <Skeleton className="h-5 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-3/4" />
             </div>
             <Skeleton className="h-4 w-full mt-2" />
             <Skeleton className="h-4 w-full" />
@@ -110,19 +99,9 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
-            <div className="flex flex-col sm:flex-row gap-6 items-start">
-              <Image
-                src={`https://placehold.co/150x150.png`}
-                alt={recommendation.giftRecommendation || "AI Suggested Gift"}
-                width={150}
-                height={150}
-                className="rounded-lg border-2 border-primary/20 object-cover aspect-square shadow-md"
-                data-ai-hint={imageHint}
-              />
-              <div className="flex-1">
-                <h3 className="text-xl lg:text-2xl font-semibold text-primary">{recommendation.giftRecommendation}</h3>
-                <p className="text-sm text-muted-foreground mt-1">A thoughtful idea based on your inputs.</p>
-              </div>
+            <div>
+              <h3 className="text-xl lg:text-2xl font-semibold text-primary">{recommendation.giftRecommendation}</h3>
+              <p className="text-sm text-muted-foreground mt-1">A thoughtful idea based on your inputs.</p>
             </div>
             
             <div>
