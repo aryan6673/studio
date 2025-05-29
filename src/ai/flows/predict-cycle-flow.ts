@@ -32,10 +32,10 @@ const PredictedEventSchema = z.object({
 });
 
 const PredictCycleOutputSchema = z.object({
-  nextPeriod: PredictedEventSchema.optional().describe("The predicted next menstrual period."),
-  nextFertileWindow: PredictedEventSchema.optional().describe("The predicted next fertile window."),
-  nextOvulationDate: z.string().optional().describe("The predicted next ovulation date in YYYY-MM-DD format. Must be a YYYY-MM-DD string."),
-  reasoning: z.string().optional().describe("A brief explanation of how the prediction was made, or any uncertainties."),
+  predictedPeriods: z.array(PredictedEventSchema).optional().describe("The predicted next N menstrual periods (at least 5 if possible, or fewer if data is insufficient). Each with a start and end date."),
+  predictedFertileWindows: z.array(PredictedEventSchema).optional().describe("The predicted next N fertile windows (at least 5 if possible, or fewer if data is insufficient). Each with a start and end date."),
+  predictedOvulationDates: z.array(z.string().describe("The predicted next ovulation date in YYYY-MM-DD format.")).optional().describe("The predicted next N ovulation dates (at least 5 if possible, or fewer if data is insufficient). Dates must be in YYYY-MM-DD format."),
+  reasoning: z.string().optional().describe("A brief explanation of how the predictions were made, or any uncertainties. If fewer than 5 predictions are made, explain why."),
   error: z.string().optional().describe("Any error message if prediction failed, e.g., insufficient data.")
 });
 export type PredictCycleOutput = z.infer<typeof PredictCycleOutputSchema>;
@@ -52,19 +52,19 @@ export async function predictCycle(input: PredictCycleInput): Promise<PredictCyc
 }
 
 const systemPrompt = `You are an expert menstrual cycle prediction assistant.
-Your goal is to predict the next upcoming period, fertile window, and ovulation date based on the provided historical period logs, user's average cycle length, and average period duration.
+Your goal is to predict future upcoming periods, fertile windows, and ovulation dates based on the provided historical period logs, user's average cycle length, and average period duration.
 Predictions should always be for future dates relative to the 'currentDate' provided.
 
 Guidelines:
+- Predict at least the next 5 occurrences of periods, fertile windows, and ovulation dates after the 'currentDate', if data allows. If fewer than 5 can be reliably predicted (e.g., highly irregular data, very sparse logs), provide as many as possible and explain this in the 'reasoning' field.
 - Analyze the provided period logs for patterns in cycle length and period duration.
 - If averageCycleLength is provided, give it high priority. If not, try to calculate an average from the logs. If logs are insufficient, use a default of 28 days.
-- If averagePeriodDuration is provided, use it for the next period's length. Otherwise, infer from logs or assume 5 days.
+- If averagePeriodDuration is provided, use it for the predicted periods' length. Otherwise, infer from logs or assume 5 days.
 - Ovulation typically occurs about 14 days BEFORE the start of the next menstrual period.
 - The fertile window typically starts 5 days before ovulation and includes the ovulation day (total 6 days).
 - All output dates MUST be in 'YYYY-MM-DD' format.
-- If data is insufficient for a reliable prediction (e.g., no logs and no average cycle length), set an appropriate message in the 'error' field and omit date predictions.
+- If data is insufficient for any reliable prediction (e.g., no logs and no average cycle length), set an appropriate message in the 'error' field and omit date predictions.
 - If predictions can be made but with low confidence (e.g., irregular cycles, very sparse data), mention this in the 'reasoning' field.
-- Focus on predicting only the single NEXT occurrence of these events after the 'currentDate'.
 - Ensure all predicted start dates are after or on the 'currentDate'. If a predicted event would have started in the past based on calculations, adjust it to the next cycle or clearly state why a prediction cannot be made for the immediate future.
 `;
 
@@ -83,7 +83,7 @@ Period Logs (up to 12 most recent, sorted chronologically):
   No period logs provided.
 {{/if}}
 
-Based on this information, provide the predictions.
+Based on this information, provide the predictions. Remember to predict at least 5 future occurrences for periods, fertile windows, and ovulation dates if possible.
 `;
 
 const predictCyclePrompt = ai.definePrompt({
@@ -110,23 +110,25 @@ const predictCycleFlow = ai.defineFlow(
         }
         const output = result.output;
 
-        // Basic validation for predicted period dates
-        if (output.nextPeriod && output.nextPeriod.startDate) {
+        // Basic validation for the first predicted period date
+        if (output.predictedPeriods && output.predictedPeriods.length > 0 && output.predictedPeriods[0].startDate) {
             try {
-                // Try to parse to ensure AI is sending valid date strings, even if not strictly enforced by Zod .date() anymore
-                const nextPeriodStartDate = new Date(output.nextPeriod.startDate + "T00:00:00"); // Ensure parsing as local date
+                const firstPredictedPeriodStartDate = new Date(output.predictedPeriods[0].startDate + "T00:00:00"); // Ensure parsing as local date
                 const currentDateObj = new Date(input.currentDate + "T00:00:00");
                 
-                if (nextPeriodStartDate < currentDateObj) {
-                    if (output.nextPeriod.endDate && new Date(output.nextPeriod.endDate + "T00:00:00") < currentDateObj) {
+                if (firstPredictedPeriodStartDate < currentDateObj) {
+                    if (output.predictedPeriods[0].endDate && new Date(output.predictedPeriods[0].endDate + "T00:00:00") < currentDateObj) {
+                        // This check might be too aggressive if we predict multiple.
+                        // Consider if this check is still relevant for the *first* of multiple predictions.
+                        // For now, let's keep it to flag if the very first prediction is entirely in the past.
                         return { 
-                            error: "AI predicted a period that has already passed. Consider logging more recent data or adjusting settings.", 
+                            error: "AI's first predicted period has already passed. Consider logging more recent data or adjusting settings.", 
                             reasoning: output.reasoning || "Prediction adjusted due to past date." 
                         };
                     }
                 }
             } catch (dateError) {
-                console.error("Error parsing date from AI prediction (AI returned non-YYYY-MM-DD string likely):", dateError, output.nextPeriod);
+                console.error("Error parsing date from AI prediction (AI returned non-YYYY-MM-DD string likely):", dateError, output.predictedPeriods[0]);
                 return { error: "AI returned an invalid date string format for the next period.", reasoning: output.reasoning };
             }
         }

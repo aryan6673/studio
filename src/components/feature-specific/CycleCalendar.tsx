@@ -36,15 +36,14 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
   React.useEffect(() => {
     const fetchAiPredictions = async () => {
       if (logs && logs.length === 0 && !cycleLength) {
-        // Not enough info for a meaningful prediction without any logs or average cycle length
         setAiPrediction({ error: "Not enough data to make predictions. Please log a period or set your average cycle length." });
-        setDayInfoMap(new Map()); // Clear previous predictions
+        setDayInfoMap(new Map()); 
         return;
       }
 
       setIsFetchingPrediction(true);
       setPredictionError(null);
-      setAiPrediction(null); // Clear previous AI prediction
+      setAiPrediction(null); 
 
       const formattedLogs: PeriodLogInput[] = logs.map(log => ({
         startDate: format(log.startDate, "yyyy-MM-dd"),
@@ -78,11 +77,11 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
 
   React.useEffect(() => {
     const newDayInfoMap = new Map<string, DayInfo>();
+    const todayFormatted = format(startOfDay(new Date()), "yyyy-MM-dd");
 
     // 1. Mark logged past periods
     logs.forEach(log => {
       const start = startOfDay(log.startDate);
-      // Use provided end date or default to 4 days after start if ongoing/not specified for display
       const end = log.endDate ? startOfDay(log.endDate) : addDays(start, (averagePeriodDuration || 5) - 1);
 
       for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
@@ -97,54 +96,52 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
 
     // 2. Mark AI-predicted future events
     if (aiPrediction && !aiPrediction.error) {
-      const todayFormatted = format(startOfDay(new Date()), "yyyy-MM-dd");
-
-      // Predicted Period
-      if (aiPrediction.nextPeriod) {
+      // Predicted Periods
+      aiPrediction.predictedPeriods?.forEach(period => {
         try {
-          const periodStart = startOfDay(parseISO(aiPrediction.nextPeriod.startDate));
-          const periodEnd = startOfDay(parseISO(aiPrediction.nextPeriod.endDate));
-          if (format(periodStart, "yyyy-MM-dd") >= todayFormatted) {
+          const periodStart = startOfDay(parseISO(period.startDate));
+          const periodEnd = startOfDay(parseISO(period.endDate));
+          if (format(periodStart, "yyyy-MM-dd") >= todayFormatted || format(periodEnd, "yyyy-MM-dd") >= todayFormatted) {
             for (let d = new Date(periodStart); d <= periodEnd; d = addDays(d, 1)) {
               const dateStr = format(d, "yyyy-MM-dd");
-              if (!newDayInfoMap.has(dateStr)) { // Only mark if not a logged period
+              if (!newDayInfoMap.has(dateStr)) { 
                 newDayInfoMap.set(dateStr, { date: d, isPredictedPeriod: true });
               }
             }
           }
-        } catch (e) { console.error("Error parsing predicted period dates:", e); }
-      }
+        } catch (e) { console.error("Error parsing predicted period dates:", e, period); }
+      });
 
-      // Predicted Fertile Window
-      if (aiPrediction.nextFertileWindow) {
+      // Predicted Fertile Windows
+      aiPrediction.predictedFertileWindows?.forEach(window => {
          try {
-          const fertileStart = startOfDay(parseISO(aiPrediction.nextFertileWindow.startDate));
-          const fertileEnd = startOfDay(parseISO(aiPrediction.nextFertileWindow.endDate));
+          const fertileStart = startOfDay(parseISO(window.startDate));
+          const fertileEnd = startOfDay(parseISO(window.endDate));
            if (format(fertileStart, "yyyy-MM-dd") >= todayFormatted || format(fertileEnd, "yyyy-MM-dd") >= todayFormatted) {
             for (let d = new Date(fertileStart); d <= fertileEnd; d = addDays(d, 1)) {
               const dateStr = format(d, "yyyy-MM-dd");
               const existingInfo = newDayInfoMap.get(dateStr) || { date: d };
-              if (!existingInfo.isLoggedPeriod && !existingInfo.isPredictedPeriod) { // Avoid overwriting period markings
+              if (!existingInfo.isLoggedPeriod && !existingInfo.isPredictedPeriod) { 
                 newDayInfoMap.set(dateStr, { ...existingInfo, isFertile: true });
               }
             }
           }
-        } catch (e) { console.error("Error parsing predicted fertile window dates:", e); }
-      }
+        } catch (e) { console.error("Error parsing predicted fertile window dates:", e, window); }
+      });
       
-      // Predicted Ovulation
-      if (aiPrediction.nextOvulationDate) {
+      // Predicted Ovulation Dates
+      aiPrediction.predictedOvulationDates?.forEach(ovDateStr => {
         try {
-          const ovulationDate = startOfDay(parseISO(aiPrediction.nextOvulationDate));
+          const ovulationDate = startOfDay(parseISO(ovDateStr));
           if (format(ovulationDate, "yyyy-MM-dd") >= todayFormatted) {
             const dateStr = format(ovulationDate, "yyyy-MM-dd");
             const existingInfo = newDayInfoMap.get(dateStr) || { date: ovulationDate };
-             if (!existingInfo.isLoggedPeriod && !existingInfo.isPredictedPeriod) { // Avoid overwriting period markings
-              newDayInfoMap.set(dateStr, { ...existingInfo, isOvulation: true, isFertile: true }); // Ovulation is part of fertile window
+             if (!existingInfo.isLoggedPeriod && !existingInfo.isPredictedPeriod) { 
+              newDayInfoMap.set(dateStr, { ...existingInfo, isOvulation: true, isFertile: true }); 
             }
           }
-        } catch (e) { console.error("Error parsing predicted ovulation date:", e); }
-      }
+        } catch (e) { console.error("Error parsing predicted ovulation date:", e, ovDateStr); }
+      });
     }
     setDayInfoMap(newDayInfoMap);
   }, [logs, aiPrediction, averagePeriodDuration]);
@@ -169,7 +166,7 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
       )}
       <Calendar
         mode="single"
-        selected={today} // Keep today selected by default for user orientation
+        selected={today} 
         month={currentMonth}
         onMonthChange={setCurrentMonth}
         className="p-0"
@@ -218,7 +215,7 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
                     variant="outline"
                     className={cn(
                       "absolute bottom-0.5 text-[9px] px-1 py-0 h-auto leading-tight font-semibold",
-                       "bg-background/70 backdrop-blur-sm" // Make badge slightly opaque for better visibility
+                       "bg-background/70 backdrop-blur-sm" 
                     )}
                     aria-label={ariaLabel}
                   >
@@ -253,3 +250,4 @@ export function CycleCalendar({ logs, cycleLength, averagePeriodDuration }: Cycl
     </div>
   );
 }
+
