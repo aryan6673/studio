@@ -1,3 +1,4 @@
+
 "use client";
 
 import { recommendGifts, type RecommendGiftsInput, type RecommendGiftsOutput } from "@/ai/flows/recommend-gifts";
@@ -37,9 +38,18 @@ export function GiftRecommendationDisplay({ symptoms, preferences }: GiftRecomme
       }
     } catch (error) {
       console.error("Failed to get gift recommendation:", error);
+      let errorMessage = "Could not fetch gift recommendation. Please try again.";
+      if (error instanceof Error && error.message) {
+        if (error.message.includes("503 Service Unavailable") || error.message.toLowerCase().includes("model is overloaded")) {
+          errorMessage = "The AI model is currently overloaded. Please try again in a few moments.";
+        } else {
+          // Keep it concise for other errors, but log the full one.
+          errorMessage = "An AI error occurred. Please try again."; 
+        }
+      }
       toast({
-        title: "Error",
-        description: "Could not fetch gift recommendation. Please try again.",
+        title: "Recommendation Failed",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
