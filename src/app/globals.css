@@ -50,6 +50,17 @@
     --sidebar-accent-foreground: 240 40% 20%; /* Dark Blue/Purple, same as --accent-foreground */
     --sidebar-border: 240 5% 90%; /* Light gray border for sidebar internal elements */
     --sidebar-ring: 300 40% 65%; /* Brighter Dusty Rose, same as --ring */
+
+    /* Calendar specific colors */
+    --cal-logged-period-bg: hsl(var(--destructive) / 0.15);
+    --cal-logged-period-fg-indicator: hsl(var(--destructive));
+    --cal-predicted-period-bg: hsl(var(--destructive) / 0.08);
+    --cal-predicted-period-fg-indicator: hsl(var(--destructive) / 0.7);
+    --cal-fertile-bg: hsl(var(--accent) / 0.2);
+    --cal-fertile-fg-indicator: hsl(var(--accent-foreground));
+    --cal-ovulation-bg: hsl(var(--secondary) / 0.25);
+    --cal-ovulation-fg-indicator: hsl(var(--secondary-foreground));
+    --cal-ovulation-border-indicator: hsl(var(--secondary));
   }
 
   .dark {
@@ -97,6 +108,87 @@
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 240 4% 15%;
     --sidebar-ring: 300 40% 50%;
+
+    /* Dark Calendar specific colors */
+    --cal-logged-period-bg: hsl(var(--destructive) / 0.25);
+    --cal-logged-period-fg-indicator: hsl(var(--destructive));
+    --cal-predicted-period-bg: hsl(var(--destructive) / 0.15);
+    --cal-predicted-period-fg-indicator: hsl(var(--destructive) / 0.7);
+    --cal-fertile-bg: hsl(var(--accent) / 0.3);
+    --cal-fertile-fg-indicator: hsl(var(--accent-foreground));
+    --cal-ovulation-bg: hsl(var(--secondary) / 0.35);
+    --cal-ovulation-fg-indicator: hsl(var(--secondary-foreground));
+    --cal-ovulation-border-indicator: hsl(var(--secondary));
+  }
+
+  /* Calendar day cell styles */
+  .cal-logged-period {
+    background-color: var(--cal-logged-period-bg) !important;
+    border-radius: var(--radius);
+  }
+  /* Ensure custom background takes precedence but respect today/selected text color if needed */
+  .rdp-day_today.cal-logged-period {
+    background-color: var(--cal-logged-period-bg) !important;
+    color: hsl(var(--accent-foreground)) !important; /* from day_today */
+  }
+   .rdp-day_selected.cal-logged-period {
+    background-color: var(--cal-logged-period-bg) !important;
+    color: hsl(var(--primary-foreground)) !important; /* from day_selected */
+  }
+
+
+  .cal-predicted-period {
+    background-color: var(--cal-predicted-period-bg) !important;
+    border-radius: var(--radius);
+    position: relative;
+  }
+  .cal-predicted-period::before {
+    content: '';
+    position: absolute;
+    inset: 1px; /* Small padding */
+    border: 1px dashed hsl(var(--muted-foreground) / 0.6);
+    border-radius: calc(var(--radius) - 1px);
+    pointer-events: none;
+  }
+  .dark .cal-predicted-period::before {
+    border-color: hsl(var(--muted-foreground) / 0.5);
+  }
+  .rdp-day_today.cal-predicted-period {
+    background-color: var(--cal-predicted-period-bg) !important;
+    color: hsl(var(--accent-foreground)) !important;
+  }
+  .rdp-day_selected.cal-predicted-period {
+    background-color: var(--cal-predicted-period-bg) !important;
+    color: hsl(var(--primary-foreground)) !important;
+  }
+
+
+  .cal-fertile {
+    background-color: var(--cal-fertile-bg) !important;
+    border-radius: var(--radius);
+  }
+  .rdp-day_today.cal-fertile {
+    background-color: var(--cal-fertile-bg) !important;
+    color: hsl(var(--accent-foreground)) !important;
+  }
+  .rdp-day_selected.cal-fertile {
+    background-color: var(--cal-fertile-bg) !important;
+    color: hsl(var(--primary-foreground)) !important;
+  }
+
+  .cal-ovulation {
+    background-color: var(--cal-ovulation-bg) !important;
+    border-radius: var(--radius);
+    outline: 1.5px solid var(--cal-ovulation-border-indicator);
+    outline-offset: -1.5px;
+  }
+   .rdp-day_today.cal-ovulation {
+    background-color: var(--cal-ovulation-bg) !important;
+    color: hsl(var(--accent-foreground)) !important;
+  }
+  .rdp-day_selected.cal-ovulation {
+    background-color: var(--cal-ovulation-bg) !important;
+    color: hsl(var(--primary-foreground)) !important;
   }
 }
 
