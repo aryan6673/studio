@@ -15,7 +15,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea"; // Added Textarea import
+import { Textarea } from "@/components/ui/textarea"; 
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -32,7 +32,7 @@ const periodLogSchema = z.object({
     required_error: "Start date is required.",
   }),
   endDate: z.date().optional(),
-  cycleLength: z.coerce.number().int().positive().optional(),
+  cycleLength: z.coerce.number().int().positive().optional().nullable(), // Updated schema
   symptoms: z.array(z.string()).optional(),
   girlName: z.string().min(2, "Name must be at least 2 characters.").optional().or(z.literal("")),
   address: z.string().min(5, "Address must be at least 5 characters.").optional().or(z.literal("")),
@@ -51,6 +51,7 @@ export function PeriodLoggerForm() {
       symptoms: [],
       girlName: "",
       address: "",
+      cycleLength: null, // Set default to null
     },
   });
 
@@ -242,7 +243,17 @@ export function PeriodLoggerForm() {
             <FormItem>
               <FormLabel>Typical Cycle Length (Days, Optional)</FormLabel>
               <FormControl>
-                <Input type="number" placeholder="e.g., 28" {...field} onChange={event => field.onChange(+event.target.value)} />
+                <Input
+                  type="number"
+                  placeholder="e.g., 28"
+                  {...field}
+                  value={field.value ?? ""} // Ensure controlled, provide empty string for null/undefined
+                  onChange={event => {
+                    const value = event.target.value;
+                    // Convert to null if empty, else convert to number
+                    field.onChange(value === "" ? null : Number(value)); 
+                  }}
+                />
               </FormControl>
               <FormDescription>
                 Your average cycle length in days. Helps with predictions.
